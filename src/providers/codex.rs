@@ -212,7 +212,7 @@ mod tests {
 
     #[test]
     fn parses_rollout_token_event() {
-        let dir = std::env::temp_dir().join("aitop_codex_test");
+        let dir = std::env::temp_dir().join("limtop_codex_test");
         fs::create_dir_all(&dir).unwrap();
         let f = dir.join("rollout-2026-06-11.jsonl");
         fs::write(

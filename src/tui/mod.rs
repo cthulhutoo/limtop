@@ -89,7 +89,7 @@ fn render_header(f: &mut Frame, area: Rect, d: &Dashboard) {
     let t = &d.totals;
     let spans = vec![
         RSpan::styled(
-            " aitop ",
+            " limtop ",
             Style::default()
                 .fg(Color::Black)
                 .bg(ACCENT)

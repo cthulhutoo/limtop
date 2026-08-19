@@ -1,10 +1,10 @@
 [package]
-name = "aitop"
-version = "0.2.0"
+name = "limtop"
+version = "0.3.0"
 edition = "2021"
 description = "btop for AI usage — a TUI dashboard for LLM tokens, costs, and rate-limit windows across CLI coding agents"
 license = "MIT"
-repository = "https://github.com/cthulhutoo/aitop"
+repository = "https://github.com/cthulhutoo/limtop"
 keywords = ["tui", "dashboard", "llm", "ai", "monitoring"]
 categories = ["command-line-utilities"]
 

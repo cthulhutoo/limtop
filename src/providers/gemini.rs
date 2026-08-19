@@ -149,7 +149,7 @@ mod tests {
     fn parses_gemini_line() {
         let line = r#"{"id":"x","timestamp":"2026-06-10T18:08:01.521Z","type":"gemini","content":"hi","tokens":{"input":6190,"output":3,"cached":100,"thoughts":27,"tool":0,"total":6220},"model":"gemini-2.5-flash"}"#;
         let mut out = Vec::new();
-        let dir = std::env::temp_dir().join("aitop_gemini_test");
+        let dir = std::env::temp_dir().join("limtop_gemini_test");
         fs::create_dir_all(&dir).unwrap();
         let f = dir.join("session-test.jsonl");
         fs::write(&f, line).unwrap();

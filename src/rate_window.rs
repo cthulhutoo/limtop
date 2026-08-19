@@ -4,10 +4,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Derived Claude rate-limit window state.
 ///
 /// Claude Code does not persist its server-side 5h usage windows to disk,
-/// so aitop reconstructs one from local transcripts: the trailing 5-hour
+/// so limtop reconstructs one from local transcripts: the trailing 5-hour
 /// token sum of Claude events. Limits come from plan presets (env-tunable):
 ///
-///   AITOP_CLAUDE_LIMIT=pro|max5|max20|custom:<n>   (default: pro)
+///   LIMTOP_CLAUDE_LIMIT=pro|max5|max20|custom:<n>   (default: pro)
 ///
 /// Presets are community-observed approximations, not official numbers.
 #[derive(Debug, Clone, Copy)]
@@ -90,7 +90,7 @@ impl RateWindow {
 // Community-observed approximations for Claude subscription plans,
 // weighted tokens per 5h window. NOT official numbers.
 fn plan_limit() -> i64 {
-    match std::env::var("AITOP_CLAUDE_LIMIT").as_deref() {
+    match std::env::var("LIMTOP_CLAUDE_LIMIT").as_deref() {
         Ok("pro") | Err(_) => 1_000_000,
         Ok("max5") => 2_200_000,
         Ok("max20") => 22_000_000,
@@ -107,7 +107,7 @@ fn plan_limit() -> i64 {
 }
 
 fn plan_limit_name() -> &'static str {
-    match std::env::var("AITOP_CLAUDE_LIMIT").as_deref() {
+    match std::env::var("LIMTOP_CLAUDE_LIMIT").as_deref() {
         Ok("pro") | Err(_) => "pro",
         Ok("max5") => "max5",
         Ok("max20") => "max20",
@@ -183,12 +183,12 @@ mod tests {
 
     #[test]
     fn custom_limit_env() {
-        std::env::set_var("AITOP_CLAUDE_LIMIT", "custom:500000");
+        std::env::set_var("LIMTOP_CLAUDE_LIMIT", "custom:500000");
         let now = 1_800_000_000;
         let evs = vec![ev(now - 1000, 250_000, 0, 0)];
         let w = RateWindow::build(&evs, now).unwrap();
         assert_eq!(w.limit, 500_000);
-        std::env::remove_var("AITOP_CLAUDE_LIMIT");
+        std::env::remove_var("LIMTOP_CLAUDE_LIMIT");
     }
 
     #[test]

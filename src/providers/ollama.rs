@@ -3,7 +3,7 @@ use std::process::Command;
 
 /// Ollama local inference. Two signals, honestly reported:
 ///
-/// 1. `/api/tags` on localhost:11434 (AITOP_OLLAMA_URL to override) —
+/// 1. `/api/tags` on localhost:11434 (LIMTOP_OLLAMA_URL to override) —
 ///    used for detection + installed-model list.
 /// 2. journald `ollama` unit logs — GIN access lines carry timestamps of
 ///    POST /api/chat + /api/generate calls. Token counts are NOT logged at
@@ -32,7 +32,7 @@ impl OllamaProvider {
 }
 
 fn url() -> String {
-    std::env::var("AITOP_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into())
+    std::env::var("LIMTOP_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into())
 }
 
 /// Parse GIN access lines from `journalctl -u ollama`.

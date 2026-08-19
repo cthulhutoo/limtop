@@ -1,8 +1,8 @@
-# aitop
+# limtop
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ aitop   37.2M tok  $77.18   in 27.2M out 2.0M cache 7.3Mr/734.2kw   822 calls │
+│ limtop   37.2M tok  $77.18   in 27.2M out 2.0M cache 7.3Mr/734.2kw   822 calls │
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ cost burn · peak $60.04 ─────────────────────────────────────────────────────┐
 │         ██                                                                   │
@@ -12,7 +12,7 @@
 └──────────────────────────────────────────────────────────────────────────────┘
 ┌ projects ────────────────────────────────────────┐┌ models ─────────────────┐
 │ ~/projects/lantrn    7.7M  ████████████  $4.93   ││ glm-5.2      9.5M  $6.00 │
-│ ~/projects/aitop   100.3k  ············  $0.09   ││ opus-4-8     2.7M  $58.35│
+│ ~/projects/limtop   100.3k  ············  $0.09   ││ opus-4-8     2.7M  $58.35│
 └──────────────────────────────────────────────────┘└──────────────────────────┘
 ┌ claude-code ─────┐┌ hermes ──────────┐┌ opencode ───────┐
 │ ● detected  $5.12││ ● detected  $68  ││ ● detected  $4.06│
@@ -28,19 +28,19 @@ account, no telemetry: everything is read from local files on disk.
 
 Every AI usage tracker in 2026 is a menu-bar app or a web dashboard. If you
 live in a terminal over SSH — on a server, in tmux, in a container — there's
-nothing. `aitop` is the missing one: `cargo install aitop`, run it anywhere,
+nothing. `limtop` is the missing one: `cargo install limtop`, run it anywhere,
 see everything.
 
 ## Install
 
     # Homebrew (macOS / Linuxbrew)
-    brew install cthulhutoo/aitop/aitop
+    brew install cthulhutoo/limtop/limtop
 
     # Cargo (once published on crates.io)
-    cargo install aitop
+    cargo install limtop
 
     # From source
-    git clone https://github.com/cthulhutoo/aitop && cd aitop && cargo install --path .
+    git clone https://github.com/cthulhutoo/limtop && cd limtop && cargo install --path .
 
 ## Providers
 
@@ -53,7 +53,7 @@ see everything.
 | opencode | `~/.local/share/opencode/storage/` | working |
 | Ollama | local API + journald | working (call counts) |
 
-aitop auto-discovers providers at startup and shows which ones it found.
+limtop auto-discovers providers at startup and shows which ones it found.
 
 ## Rate-limit window
 
@@ -64,16 +64,16 @@ Cache reads count at 0.1× weight, matching how limits bite.
 Claude does not publish plan limits, so presets are community-observed
 approximations. Pick yours with:
 
-    AITOP_CLAUDE_LIMIT=pro|max5|max20|custom:<tokens>   aitop
+    LIMTOP_CLAUDE_LIMIT=pro|max5|max20|custom:<tokens>   limtop
 
 Defaults to `pro`. The panel is labeled "derived" — it's a local estimate,
 not an official reading.
 
 ## Usage
 
-    aitop              # TUI dashboard
-    aitop --dump       # plain-text report (pipes, CI, cron)
-    aitop --dump --all # all-time report
+    limtop              # TUI dashboard
+    limtop --dump       # plain-text report (pipes, CI, cron)
+    limtop --dump --all # all-time report
 
 In the TUI:
 
@@ -91,7 +91,7 @@ LM Studio) show $0.
 
 ## Privacy
 
-aitop never makes a network request. All data comes from local session
+limtop never makes a network request. All data comes from local session
 files and provider state on your machine. There is no analytics, no
 phone-home, no config file.
 

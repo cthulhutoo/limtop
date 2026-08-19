@@ -141,7 +141,7 @@ fn main() {
 fn dump_report(reg: &Registry, span: Span) {
     let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
     let window = rate_window::RateWindow::build(&reg.events, now_epoch());
-    println!("aitop — AI usage report (span: {})", dash.span);
+    println!("limtop — AI usage report (span: {})", dash.span);
     println!();
     if let Some(w) = &window {
         println!("{}", rate_window::fmt_window(&w));
