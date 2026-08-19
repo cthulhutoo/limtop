@@ -1,6 +1,7 @@
 mod aggregator;
 mod model;
 mod providers;
+mod rate_window;
 mod tui;
 
 use aggregator::Dashboard;
@@ -63,9 +64,10 @@ fn main() {
         }
         let (reg, _) = last_scan.as_ref().expect("scan exists");
         let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
+        let window = rate_window::RateWindow::build(&reg.events, now_epoch());
 
         terminal
-            .draw(|f| tui::render(f, &dash, &reg.statuses))
+            .draw(|f| tui::render(f, &dash, &reg.statuses, window.as_ref()))
             .expect("draw failed");
 
         // input with timeout
@@ -96,8 +98,13 @@ fn main() {
 
 fn dump_report(reg: &Registry, span: Span) {
     let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
+    let window = rate_window::RateWindow::build(&reg.events, now_epoch());
     println!("aitop — AI usage report (span: {})", dash.span);
     println!();
+    if let Some(w) = &window {
+        println!("{}", rate_window::fmt_window(&w));
+        println!();
+    }
     println!("providers detected:");
     for s in &reg.statuses {
         println!(

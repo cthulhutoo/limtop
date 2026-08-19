@@ -1,23 +1,32 @@
 use crate::aggregator::Dashboard;
 use crate::model::{fmt_cost, fmt_tokens, ProviderStatus, UsageTotals};
+use crate::rate_window::RateWindow;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span as RSpan},
-    widgets::{Bar, BarChart, BarGroup, Block, Borders, Paragraph},
+    widgets::{Bar, BarChart, BarGroup, Block, Borders, Gauge, Paragraph},
     Frame,
 };
 
 const ACCENT: Color = Color::Cyan;
 const GREEN: Color = Color::Green;
+const YELLOW: Color = Color::Yellow;
+const RED: Color = Color::Red;
 const DIM: Color = Color::DarkGray;
 
 /// Render the full dashboard.
-pub fn render(f: &mut Frame, d: &Dashboard, statuses: &[ProviderStatus]) {
+pub fn render(
+    f: &mut Frame,
+    d: &Dashboard,
+    statuses: &[ProviderStatus],
+    window: Option<&RateWindow>,
+) {
     let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(3),  // header
+            Constraint::Length(4),  // claude rate window (when present)
             Constraint::Length(10), // burn graph
             Constraint::Min(8),     // middle: projects + models
             Constraint::Length(7),  // providers strip
@@ -26,10 +35,53 @@ pub fn render(f: &mut Frame, d: &Dashboard, statuses: &[ProviderStatus]) {
         .split(f.area());
 
     render_header(f, rows[0], d);
-    render_burn(f, rows[1], d);
-    render_middle(f, rows[2], d);
-    render_providers(f, rows[3], statuses, d);
-    render_footer(f, rows[4]);
+    if let Some(w) = window {
+        render_window(f, rows[1], w);
+        render_burn(f, rows[2], d);
+        render_middle(f, rows[3], d);
+        render_providers(f, rows[4], statuses, d);
+        render_footer(f, rows[5]);
+    } else {
+        render_burn(f, rows[2], d);
+        render_middle(f, rows[3], d);
+        render_providers(f, rows[4], statuses, d);
+        render_footer(f, rows[5]);
+    }
+}
+
+/// Claude 5h rate-limit window: gauge + burn + reset countdown.
+fn render_window(f: &mut Frame, area: Rect, w: &RateWindow) {
+    let pct = (w.pct_used() * 100.0) as u16;
+    let color = if pct >= 90 {
+        RED
+    } else if pct >= 70 {
+        YELLOW
+    } else {
+        GREEN
+    };
+    let resets_in = (w.resets_at - now_epoch()).max(0);
+    let (rh, rm) = (resets_in / 3600, (resets_in % 3600) / 60);
+    let gauge = Gauge::default()
+        .ratio(w.pct_used().min(1.0))
+        .label(format!(
+            " claude 5h window · {} / {} weighted tok ({}%) · burn {} tok/h · resets in {}h{:02}m · limit: {} [derived, not official] ",
+            fmt_tokens(w.used as u64),
+            fmt_tokens(w.limit as u64),
+            pct,
+            fmt_tokens(w.burn_rate as u64),
+            rh,
+            rm,
+            w.limit_name(),
+        ))
+        .gauge_style(Style::default().fg(color).bg(Color::Black));
+    f.render_widget(gauge, area);
+}
+
+fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
 }
 
 fn render_header(f: &mut Frame, area: Rect, d: &Dashboard) {

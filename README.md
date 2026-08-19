@@ -42,13 +42,27 @@ see everything.
 | Provider | Source | Status |
 |----------|--------|--------|
 | Claude Code | `~/.claude/projects/**/*.jsonl` | working |
+| Codex | `~/.codex/` (sqlite + rollout JSONL) | working |
+| Gemini CLI | `~/.gemini/tmp/*/chats/*.jsonl` | working |
 | Hermes Agent | `~/.hermes/state.db` | working |
 | opencode | `~/.local/share/opencode/storage/` | working |
-| Codex | `~/.codex/` | planned |
-| Gemini CLI | `~/.gemini/` | planned |
 | Ollama | local API | planned |
 
 aitop auto-discovers providers at startup and shows which ones it found.
+
+## Rate-limit window
+
+The dashboard shows a derived Claude 5-hour usage window: weighted tokens
+consumed in the trailing 5h, burn rate, and when the oldest usage ages out.
+Cache reads count at 0.1× weight, matching how limits bite.
+
+Claude does not publish plan limits, so presets are community-observed
+approximations. Pick yours with:
+
+    AITOP_CLAUDE_LIMIT=pro|max5|max20|custom:<tokens>   aitop
+
+Defaults to `pro`. The panel is labeled "derived" — it's a local estimate,
+not an official reading.
 
 ## Usage
 
