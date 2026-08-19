@@ -1,6 +1,7 @@
 use crate::aggregator::Dashboard;
 use crate::model::{fmt_cost, fmt_tokens, ProviderStatus, UsageTotals};
 use crate::rate_window::RateWindow;
+pub mod drilldown;
 use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},

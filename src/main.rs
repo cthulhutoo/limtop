@@ -46,6 +46,9 @@ fn main() {
     let mut last_scan: Option<(Registry, i64)> = None;
     let mut need_rescan = true;
 
+    // drill-down state (project list / detail), 'p' toggles
+    let mut drill: Option<tui::drilldown::Drilldown> = None;
+
     let tick_rate = Duration::from_millis(1000);
     let mut last_tick = std::time::Instant::now();
 
@@ -66,9 +69,19 @@ fn main() {
         let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
         let window = rate_window::RateWindow::build(&reg.events, now_epoch());
 
-        terminal
-            .draw(|f| tui::render(f, &dash, &reg.statuses, window.as_ref()))
-            .expect("draw failed");
+        match drill.as_mut() {
+            None => {
+                terminal
+                    .draw(|f| tui::render(f, &dash, &reg.statuses, window.as_ref()))
+                    .expect("draw failed");
+            }
+            Some(dd) => {
+                dd.refresh_detail(&dash);
+                terminal
+                    .draw(|f| tui::drilldown::render(f, dd, &dash.span_label().to_string()))
+                    .expect("draw failed");
+            }
+        }
 
         // input with timeout
         if crossterm::event::poll(tick_rate).expect("poll failed") {
@@ -79,7 +92,36 @@ fn main() {
                         crossterm::event::KeyCode::Char('q') | crossterm::event::KeyCode::Esc => {
                             break
                         }
-                        crossterm::event::KeyCode::Char('r') => need_rescan = true,
+                        crossterm::event::KeyCode::Char('r') => {
+                            need_rescan = true;
+                        }
+                        crossterm::event::KeyCode::Char('p') => {
+                            if drill.is_none() {
+                                drill = Some(tui::drilldown::Drilldown::new(&dash));
+                            } else {
+                                drill = None; // toggle back
+                            }
+                        }
+                        crossterm::event::KeyCode::Up => {
+                            if let Some(dd) = drill.as_mut() {
+                                dd.up();
+                            }
+                        }
+                        crossterm::event::KeyCode::Down => {
+                            if let Some(dd) = drill.as_mut() {
+                                dd.down();
+                            }
+                        }
+                        crossterm::event::KeyCode::Enter => {
+                            if let Some(dd) = drill.as_mut() {
+                                dd.enter();
+                            }
+                        }
+                        crossterm::event::KeyCode::Backspace => {
+                            if let Some(dd) = drill.as_mut() {
+                                dd.back();
+                            }
+                        }
                         crossterm::event::KeyCode::Char('1') => span = Span::Hour,
                         crossterm::event::KeyCode::Char('2') => span = Span::Day,
                         crossterm::event::KeyCode::Char('3') => span = Span::Week,

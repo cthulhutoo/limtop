@@ -1,4 +1,12 @@
 use crate::model::{Span, UsageEvent, UsageTotals};
+
+/// Wall-clock helper for drilldown hourly bucketing.
+pub fn now_hint() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
 use std::collections::BTreeMap;
 
 /// Everything the TUI needs to render one frame.
@@ -16,6 +24,18 @@ pub struct Dashboard {
     /// Totals over the selected span.
     pub totals: UsageTotals,
     pub span: Span,
+}
+
+impl Dashboard {
+    pub fn span_label(&self) -> &'static str {
+        match self.span {
+            crate::model::Span::Hour => "1h",
+            crate::model::Span::Day => "24h",
+            crate::model::Span::Week => "7d",
+            crate::model::Span::Month => "30d",
+            crate::model::Span::All => "all",
+        }
+    }
 }
 
 impl Dashboard {

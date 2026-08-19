@@ -2,6 +2,7 @@ pub mod claude;
 pub mod codex;
 pub mod gemini;
 pub mod hermes;
+pub mod ollama;
 pub mod opencode;
 
 use crate::model::{ProviderStatus, UsageEvent};
@@ -61,6 +62,18 @@ impl Registry {
         });
         if hermes_ok {
             events.extend(hermes::HermesProvider::load(home));
+        }
+
+        // Ollama (local API; not under $HOME but a running service)
+        let (ollama_ok, ollama_detail) =
+            ollama::status().unwrap_or((false, "ollama @ localhost:11434".into()));
+        statuses.push(ProviderStatus {
+            name: "ollama".into(),
+            detected: ollama_ok,
+            detail: ollama_detail,
+        });
+        if ollama_ok {
+            events.extend(ollama::OllamaProvider::load());
         }
 
         // opencode

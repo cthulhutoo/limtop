@@ -46,7 +46,7 @@ see everything.
 | Gemini CLI | `~/.gemini/tmp/*/chats/*.jsonl` | working |
 | Hermes Agent | `~/.hermes/state.db` | working |
 | opencode | `~/.local/share/opencode/storage/` | working |
-| Ollama | local API | planned |
+| Ollama | local API + journald | working (call counts) |
 
 aitop auto-discovers providers at startup and shows which ones it found.
 
@@ -70,8 +70,12 @@ not an official reading.
     aitop --dump       # plain-text report (pipes, CI, cron)
     aitop --dump --all # all-time report
 
-In the TUI: `1`–`5` switch span (1h / 24h / 7d / 30d / all), `r` rescan,
-`q` quit.
+In the TUI:
+
+    1–5      switch span (1h / 24h / 7d / 30d / all)
+    p        project drill-down (↑/↓ select, enter detail, backspace back)
+    r        rescan providers
+    q        quit
 
 ## Cost estimates
 
