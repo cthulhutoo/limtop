@@ -1,23 +1,6 @@
 # limtop
 
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ limtop   37.2M tok  $77.18   in 27.2M out 2.0M cache 7.3Mr/734.2kw   822 calls │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ cost burn · peak $60.04 ─────────────────────────────────────────────────────┐
-│         ██                                                                   │
-│         ██                                                                   │
-│         ██ ▄▄                                                                │
-│▄▄ ▅▅    ██ ▆▆ ▁▁                                                             │
-└──────────────────────────────────────────────────────────────────────────────┘
-┌ projects ────────────────────────────────────────┐┌ models ─────────────────┐
-│ ~/projects/lantrn    7.7M  ████████████  $4.93   ││ glm-5.2      9.5M  $6.00 │
-│ ~/projects/limtop   100.3k  ············  $0.09   ││ opus-4-8     2.7M  $58.35│
-└──────────────────────────────────────────────────┘└──────────────────────────┘
-┌ claude-code ─────┐┌ hermes ──────────┐┌ opencode ───────┐
-│ ● detected  $5.12││ ● detected  $68  ││ ● detected  $4.06│
-└──────────────────┘└──────────────────┘└──────────────────┘
-```
+![limtop dashboard](assets/rate-hero.png)
 
 **btop for AI usage.** A single Rust binary that reads the CLI coding agents
 you already use — Claude Code, opencode, Hermes — and shows tokens, cost,
@@ -30,6 +13,13 @@ Every AI usage tracker in 2026 is a menu-bar app or a web dashboard. If you
 live in a terminal over SSH — on a server, in tmux, in a container — there's
 nothing. `limtop` is the missing one: `cargo install limtop`, run it anywhere,
 see everything.
+
+## Screenshots
+
+| | |
+|---|---|
+| ![dashboard](assets/rate-hero.png) | ![projects](assets/projects-list.png) |
+| ![project detail](assets/project-detail.png) | ![rate window](assets/dashboard.png) |
 
 ## Install
 
