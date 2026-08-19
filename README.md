@@ -33,9 +33,14 @@ see everything.
 
 ## Install
 
-    cargo install --path .
-    # or from source
-    git clone https://github.com/rdclark/aitop && cd aitop && cargo install --path .
+    # Homebrew (macOS / Linuxbrew)
+    brew install cthulhutoo/aitop/aitop
+
+    # Cargo (once published on crates.io)
+    cargo install aitop
+
+    # From source
+    git clone https://github.com/cthulhutoo/aitop && cd aitop && cargo install --path .
 
 ## Providers
 
