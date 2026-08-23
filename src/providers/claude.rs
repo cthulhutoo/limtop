@@ -47,8 +47,8 @@ fn walk_projects(root: &Path, out: &mut Vec<UsageEvent>) {
             let fp = f.path();
             if fp.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
-                out.extend(parse_jsonl(&fp, &project));
             }
+            out.extend(parse_jsonl(&fp, &project));
         }
     }
 }
@@ -160,4 +160,55 @@ pub fn detected(home: &Path) -> bool {
 pub fn session_dir(home: &Path) -> Option<PathBuf> {
     let p = home.join(".claude").join("projects");
     p.is_dir().then_some(p)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test: a total-outage bug (2026-08-23) put the
+    /// `out.extend(parse_jsonl(...))` call after `continue`, making it
+    /// unreachable — the provider silently emitted zero events while all
+    /// 31 tests stayed green. This end-to-end fixture pins the walk:
+    /// fake home → projects/<encoded-project>/session.jsonl → events.
+    #[test]
+    fn walk_projects_emits_events() {
+        let tmp = std::env::temp_dir().join(format!("limtop-claude-test-{}", std::process::id()));
+        let proj = tmp.join(".claude").join("projects").join("-home-x-foo");
+        std::fs::create_dir_all(&proj).unwrap();
+        let session = proj.join("s1.jsonl");
+        std::fs::write(
+            &session,
+            concat!(
+                r#"{"type":"assistant","timestamp":"2026-08-23T00:00:00Z","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":10,"output_tokens":20,"cache_read_input_tokens":1,"cache_creation_input_tokens":2}}}"#,
+                "\n"
+            ),
+        )
+        .unwrap();
+
+        let events = ClaudeProvider::load(&tmp, &[]);
+        assert_eq!(events.len(), 1, "must emit the fixture event");
+        assert_eq!(events[0].input_tokens, 10);
+        assert_eq!(events[0].output_tokens, 20);
+        assert_eq!(events[0].model, "claude-sonnet-4-5");
+        assert!(events[0].project.as_deref().unwrap_or("").ends_with("foo"));
+
+        // extra root: same layout under a configured dir
+        let extra =
+            std::env::temp_dir().join(format!("limtop-claude-extra-{}", std::process::id()));
+        let eproj = extra.join("projects").join("-home-y-bar");
+        std::fs::create_dir_all(&eproj).unwrap();
+        std::fs::write(
+            eproj.join("s2.jsonl"),
+            r#"{"type":"assistant","timestamp":"2026-08-23T01:00:00Z","message":{"model":"claude-opus-4-6","usage":{"input_tokens":5,"output_tokens":6}}}"#,
+        )
+        .unwrap();
+        let roots = vec![extra.to_string_lossy().to_string()];
+        let all = ClaudeProvider::load(&tmp, &roots);
+        assert_eq!(all.len(), 2, "home + extra root both counted");
+        assert!(all.iter().any(|e| e.model == "claude-opus-4-6"));
+
+        std::fs::remove_dir_all(&tmp).ok();
+        std::fs::remove_dir_all(&extra).ok();
+    }
 }

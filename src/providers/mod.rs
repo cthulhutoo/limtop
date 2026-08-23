@@ -65,8 +65,10 @@ impl Registry {
         }
 
         // Ollama (local API; not under $HOME but a running service)
-        let (ollama_ok, ollama_detail) =
-            ollama::status(cfg.ollama_url()).unwrap_or((false, "ollama @ localhost:11434".into()));
+        let (ollama_ok, ollama_detail) = ollama::status(cfg.ollama_url()).unwrap_or((
+            false,
+            format!("ollama @ {} (down)", ollama::base_url(cfg.ollama_url())),
+        ));
         statuses.push(ProviderStatus {
             name: "ollama".into(),
             detected: ollama_ok,

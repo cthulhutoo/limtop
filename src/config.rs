@@ -75,6 +75,16 @@ fn expand_tilde(p: &str) -> String {
     p.to_string()
 }
 
+/// Serialises tests that mutate LIMTOP_CLAUDE_LIMIT (env is process-global;
+/// cargo test runs in parallel threads).
+#[cfg(test)]
+pub static TEST_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
+    TEST_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 /// Parse config TOML text. Bad TOML → default (caller decides whether to warn).
 pub fn parse(s: &str) -> Config {
     match toml::from_str::<Config>(s) {

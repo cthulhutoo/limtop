@@ -202,6 +202,8 @@ mod tests {
     fn env_still_resolves_through_config() {
         // LIMTOP_CLAUDE_LIMIT keeps working: main resolves env>file via
         // Config::plan_or_env() and threads the result into build().
+        // manipulates LIMTOP_CLAUDE_LIMIT — serialised via lock (see config.rs)
+        let _g = crate::config::test_env_lock();
         std::env::set_var("LIMTOP_CLAUDE_LIMIT", "max20");
         let plan = Config::default().plan_or_env();
         std::env::remove_var("LIMTOP_CLAUDE_LIMIT");
@@ -214,6 +216,8 @@ mod tests {
 
     #[test]
     fn file_plan_resolves_through_config() {
+        // manipulates LIMTOP_CLAUDE_LIMIT via plan_or_env — serialised
+        let _g = crate::config::test_env_lock();
         let cfg = crate::config::parse("plan = \"max5\"\n");
         let plan = cfg.plan_or_env();
         let now = 1_800_000_000;

@@ -34,6 +34,15 @@ impl OllamaProvider {
 /// Effective ollama URL: env `LIMTOP_OLLAMA_URL` beats config file beats
 /// default localhost:11434.
 fn url(configured: Option<&str>) -> String {
+    resolved(configured)
+}
+
+/// Public wrapper for status strings elsewhere (e.g. registry fallback).
+pub fn base_url(configured: Option<&str>) -> String {
+    resolved(configured)
+}
+
+fn resolved(configured: Option<&str>) -> String {
     std::env::var("LIMTOP_OLLAMA_URL")
         .ok()
         .or_else(|| configured.map(|s| s.to_string()))
@@ -118,8 +127,9 @@ fn is_inference_call(msg: &str) -> bool {
 }
 
 pub fn status(configured_url: Option<&str>) -> Option<(bool, String)> {
-    // live API check
-    match ureq::get(&format!("{}/api/tags", url(configured_url)))
+    // live API check (single url resolution for both use and display)
+    let base = url(configured_url);
+    match ureq::get(&format!("{}/api/tags", base))
         .timeout(std::time::Duration::from_secs(2))
         .call()
     {
