@@ -86,6 +86,7 @@ mod tests {
             window_secs: 18_000,
             used: 150_000,
             limit: 1_000_000,
+            plan_name: "pro",
             burn_rate: 30_000.0,
             resets_at: 1_800_000_500,
         };

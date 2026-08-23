@@ -21,6 +21,8 @@ pub struct RateWindow {
     pub used: i64,
     /// plan limit in weighted tokens
     pub limit: i64,
+    /// which preset produced `limit` ("pro" | "max5" | "max20" | "custom")
+    pub plan_name: &'static str,
     /// weighted tokens/hour over the window so far
     pub burn_rate: f64,
     /// when the window resets (epoch)
@@ -36,7 +38,7 @@ impl RateWindow {
             + (e.cache_read_tokens as i64 / 10)
     }
 
-    pub fn build(claude_events: &[UsageEvent], now: i64) -> Option<Self> {
+    pub fn build(claude_events: &[UsageEvent], now: i64, plan: Option<&str>) -> Option<Self> {
         let claude_events: Vec<&UsageEvent> = claude_events
             .iter()
             .filter(|e| e.provider == "claude-code")
@@ -66,7 +68,8 @@ impl RateWindow {
         Some(RateWindow {
             window_start,
             used,
-            limit: plan_limit(),
+            limit: plan_limit(plan),
+            plan_name: plan_limit_name(plan),
             burn_rate,
             resets_at,
             window_secs,
@@ -83,36 +86,38 @@ impl RateWindow {
     }
 
     pub fn limit_name(&self) -> &'static str {
-        plan_limit_name()
+        self.plan_name
     }
 }
 
 // ── plan presets ─────────────────────────────────────────────────────
 // Community-observed approximations for Claude subscription plans,
 // weighted tokens per 5h window. NOT official numbers.
-fn plan_limit() -> i64 {
-    match std::env::var("LIMTOP_CLAUDE_LIMIT").as_deref() {
-        Ok("pro") | Err(_) => 1_000_000,
-        Ok("max5") => 2_200_000,
-        Ok("max20") => 22_000_000,
-        Ok("custom") => 1_000_000,
-        Ok(v) if v.starts_with("custom:") => v
+// `plan` is the resolved plan string: env LIMTOP_CLAUDE_LIMIT beats
+// ~/.config/limtop.toml `plan` (resolution happens in config::Config).
+fn plan_limit(plan: Option<&str>) -> i64 {
+    match plan {
+        None | Some("pro") => 1_000_000,
+        Some("max5") => 2_200_000,
+        Some("max20") => 22_000_000,
+        Some("custom") => 1_000_000,
+        Some(v) if v.starts_with("custom:") => v
             .strip_prefix("custom:")
             .and_then(|n| n.parse().ok())
             .unwrap_or(1_000_000),
-        Ok(other) => {
+        Some(other) => {
             // numeric directly
             other.parse().unwrap_or(1_000_000)
         }
     }
 }
 
-fn plan_limit_name() -> &'static str {
-    match std::env::var("LIMTOP_CLAUDE_LIMIT").as_deref() {
-        Ok("pro") | Err(_) => "pro",
-        Ok("max5") => "max5",
-        Ok("max20") => "max20",
-        _ => "custom",
+fn plan_limit_name(plan: Option<&str>) -> &'static str {
+    match plan {
+        None | Some("pro") => "pro",
+        Some("max5") => "max5",
+        Some("max20") => "max20",
+        Some(_) => "custom",
     }
 }
 
@@ -141,6 +146,7 @@ fn now_epoch() -> i64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::Config;
 
     fn ev(ts: i64, input: u64, output: u64, cache_read: u64) -> UsageEvent {
         let mut e = UsageEvent {
@@ -164,9 +170,10 @@ mod tests {
         let now = 1_800_000_000;
         // 1 event: 100k input, 10k output, 500k cache-read (→50k weighted)
         let evs = vec![ev(now - 1000, 100_000, 10_000, 500_000)];
-        let w = RateWindow::build(&evs, now).unwrap();
+        let w = RateWindow::build(&evs, now, None).unwrap();
         assert_eq!(w.used, 100_000 + 10_000 + 50_000); // 160k
         assert_eq!(w.limit, 1_000_000); // default pro
+        assert_eq!(w.limit_name(), "pro");
         assert!((w.pct_used() - 0.16).abs() < 0.001);
     }
 
@@ -178,26 +185,50 @@ mod tests {
             ev(now - 17_900, 999_999, 0, 0),
             ev(now - 30_000, 1_000_000, 0, 0),
         ];
-        let w = RateWindow::build(&evs, now).unwrap();
+        let w = RateWindow::build(&evs, now, None).unwrap();
         assert_eq!(w.used, 999_999);
     }
 
     #[test]
-    fn custom_limit_env() {
-        std::env::set_var("LIMTOP_CLAUDE_LIMIT", "custom:500000");
+    fn custom_limit_via_plan_param() {
         let now = 1_800_000_000;
         let evs = vec![ev(now - 1000, 250_000, 0, 0)];
-        let w = RateWindow::build(&evs, now).unwrap();
+        let w = RateWindow::build(&evs, now, Some("custom:500000")).unwrap();
         assert_eq!(w.limit, 500_000);
+        assert_eq!(w.limit_name(), "custom");
+    }
+
+    #[test]
+    fn env_still_resolves_through_config() {
+        // LIMTOP_CLAUDE_LIMIT keeps working: main resolves env>file via
+        // Config::plan_or_env() and threads the result into build().
+        std::env::set_var("LIMTOP_CLAUDE_LIMIT", "max20");
+        let plan = Config::default().plan_or_env();
         std::env::remove_var("LIMTOP_CLAUDE_LIMIT");
+        let now = 1_800_000_000;
+        let evs = vec![ev(now - 1000, 250_000, 0, 0)];
+        let w = RateWindow::build(&evs, now, plan.as_deref()).unwrap();
+        assert_eq!(w.limit, 22_000_000);
+        assert_eq!(w.limit_name(), "max20");
+    }
+
+    #[test]
+    fn file_plan_resolves_through_config() {
+        let cfg = crate::config::parse("plan = \"max5\"\n");
+        let plan = cfg.plan_or_env();
+        let now = 1_800_000_000;
+        let evs = vec![ev(now - 1000, 250_000, 0, 0)];
+        let w = RateWindow::build(&evs, now, plan.as_deref()).unwrap();
+        assert_eq!(w.limit, 2_200_000);
+        assert_eq!(w.limit_name(), "max5");
     }
 
     #[test]
     fn zero_usage_no_window() {
         let evs: Vec<UsageEvent> = vec![];
-        assert!(RateWindow::build(&evs, 1_800_000_000).is_none());
+        assert!(RateWindow::build(&evs, 1_800_000_000, None).is_none());
         let old = vec![ev(1_700_000_000, 100, 0, 0)];
-        assert!(RateWindow::build(&old, 1_800_000_000).is_none());
+        assert!(RateWindow::build(&old, 1_800_000_000, None).is_none());
     }
 
     #[test]
@@ -205,9 +236,21 @@ mod tests {
         let now = 1_800_000_000;
         // one event 1h ago of 100k weighted → 100k/h over 5h-window elapsed
         let evs = vec![ev(now - 3_600, 100_000, 0, 0)];
-        let w = RateWindow::build(&evs, now).unwrap();
+        let w = RateWindow::build(&evs, now, None).unwrap();
         // elapsed = 3600+... window_start = now-18000, event at now-3600
         // used=100k, elapsed=18000 → rate = 100000/(18000/3600) ≈ 20k/h
         assert!(w.burn_rate > 0.0 && w.burn_rate < 100_000.0);
+    }
+
+    #[test]
+    fn plan_limit_variants() {
+        assert_eq!(plan_limit(None), 1_000_000);
+        assert_eq!(plan_limit(Some("pro")), 1_000_000);
+        assert_eq!(plan_limit(Some("max5")), 2_200_000);
+        assert_eq!(plan_limit(Some("max20")), 22_000_000);
+        assert_eq!(plan_limit(Some("custom:500000")), 500_000);
+        assert_eq!(plan_limit(Some("custom")), 1_000_000);
+        assert_eq!(plan_limit(Some("3000000")), 3_000_000, "bare numeric");
+        assert_eq!(plan_limit(Some("garbage")), 1_000_000, "unparseable → pro");
     }
 }

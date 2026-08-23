@@ -129,12 +129,179 @@ pub fn price_per_mtok(model: &str) -> Option<(f64, f64)> {
 }
 
 pub fn estimate_cost(model: &str, e: &UsageEvent) -> Option<f64> {
-    let (pi, po) = price_per_mtok(model)?;
+    // consult config overrides (installed once at startup); empty = builtin
+    static EMPTY: std::sync::OnceLock<
+        std::collections::HashMap<String, crate::config::PricingOverride>,
+    > = std::sync::OnceLock::new();
+    let ov = PRICING_OVERRIDES
+        .get()
+        .unwrap_or_else(|| EMPTY.get_or_init(Default::default));
+    estimate_cost_with(model, e, ov)
+}
+
+/// Config price overrides (model → per-Mtok prices), set once at startup
+/// from ~/.config/limtop.toml. A global is used deliberately: estimate_cost
+/// is called from 5+ provider parsers deep in the scan path, and threading
+/// a &HashMap through every provider would break the Provider API for a
+/// rarely-changed setting. Documented trade-off; see set_pricing_overrides.
+static PRICING_OVERRIDES: std::sync::OnceLock<
+    std::collections::HashMap<String, crate::config::PricingOverride>,
+> = std::sync::OnceLock::new();
+
+/// Install config pricing overrides (called once from main). First call
+/// wins; later calls are ignored (tests must not fight each other over it).
+pub fn set_pricing_overrides(m: std::collections::HashMap<String, crate::config::PricingOverride>) {
+    let _ = PRICING_OVERRIDES.set(m);
+}
+
+/// Resolve (input, output) per-Mtok prices for `model`: builtin, patched by
+/// any config override for that exact model name.
+pub fn price_per_mtok_with(
+    model: &str,
+    ov: &std::collections::HashMap<String, crate::config::PricingOverride>,
+) -> Option<(f64, f64)> {
+    let builtin = price_per_mtok(model);
+    let Some(p) = ov.get(model) else {
+        return builtin;
+    };
+    // exact-match override patches only the fields it sets; an override on
+    // a model with NO builtin price only works if both fields are set
+    // (we never guess the missing half)
+    let i = p.input.or(builtin.map(|b| b.0));
+    let o = p.output.or(builtin.map(|b| b.1));
+    match (i, o) {
+        (Some(i), Some(o)) => Some((i, o)),
+        _ => None,
+    }
+}
+
+/// estimate_cost with an explicit overrides table (pure; testable).
+pub fn estimate_cost_with(
+    model: &str,
+    e: &UsageEvent,
+    ov: &std::collections::HashMap<String, crate::config::PricingOverride>,
+) -> Option<f64> {
+    let (pi, po) = price_per_mtok_with(model, ov)?;
     let cached = e.cache_read_tokens as f64 / 1_000_000.0 * pi * 0.1;
     let cache_w = e.cache_write_tokens as f64 / 1_000_000.0 * pi * 1.25;
     let input = e.input_tokens as f64 / 1_000_000.0 * pi;
     let output = e.output_tokens as f64 / 1_000_000.0 * po;
     Some(input + output + cached + cache_w)
+}
+
+#[cfg(test)]
+mod pricing_tests {
+    use super::*;
+    use crate::config::PricingOverride;
+
+    fn ev(model: &str, input: u64, output: u64) -> UsageEvent {
+        UsageEvent {
+            provider: "claude-code".into(),
+            model: model.into(),
+            project: None,
+            session: None,
+            ts: 0,
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost: None,
+        }
+    }
+
+    fn overrides(
+        pairs: &[(&str, Option<f64>, Option<f64>)],
+    ) -> std::collections::HashMap<String, PricingOverride> {
+        pairs
+            .iter()
+            .map(|(m, i, o)| {
+                (
+                    m.to_string(),
+                    PricingOverride {
+                        input: *i,
+                        output: *o,
+                    },
+                )
+            })
+            .collect()
+    }
+
+    #[test]
+    fn override_patches_price_for_exact_model() {
+        let e = ev("claude-sonnet-4-5", 1_000_000, 1_000_000);
+        let base = estimate_cost("claude-sonnet-4-5", &e).unwrap(); // 3+15 = 18
+        let ov = overrides(&[("claude-sonnet-4-5", Some(99.0), Some(99.0))]);
+        let got = estimate_cost_with("claude-sonnet-4-5", &e, &ov).unwrap();
+        assert!(
+            (got - 198.0).abs() < 1e-9,
+            "full override: 99+99, was {base}"
+        );
+    }
+
+    #[test]
+    fn partial_override_keeps_other_builtin_field() {
+        let e = ev("claude-sonnet-4-5", 1_000_000, 0);
+        // only input overridden; builtin output 15.0 irrelevant (no output tokens)
+        let ov = overrides(&[("claude-sonnet-4-5", Some(10.0), None)]);
+        let got = estimate_cost_with("claude-sonnet-4-5", &e, &ov).unwrap();
+        assert!((got - 10.0).abs() < 1e-9, "input override only");
+        // now with output tokens: builtin output 15.0 must survive
+        let e2 = ev("claude-sonnet-4-5", 0, 1_000_000);
+        let got2 = estimate_cost_with("claude-sonnet-4-5", &e2, &ov).unwrap();
+        assert!((got2 - 15.0).abs() < 1e-9, "None output keeps builtin 15.0");
+    }
+
+    #[test]
+    fn override_for_other_model_is_noop() {
+        let e = ev("claude-sonnet-4-5", 1_000_000, 0);
+        let ov = overrides(&[("gpt-9", Some(99.0), Some(99.0))]);
+        let got = estimate_cost_with("claude-sonnet-4-5", &e, &ov).unwrap();
+        assert!((got - 3.0).abs() < 1e-9, "unrelated override ignored");
+    }
+
+    #[test]
+    fn override_prices_unknown_builtin_model() {
+        let e = ev("my-private-finetune", 1_000_000, 1_000_000);
+        assert!(estimate_cost("my-private-finetune", &e).is_none());
+        let ov = overrides(&[("my-private-finetune", Some(1.0), Some(2.0))]);
+        let got = estimate_cost_with("my-private-finetune", &e, &ov).unwrap();
+        assert!(
+            (got - 3.0).abs() < 1e-9,
+            "override gives price to unknown model"
+        );
+    }
+
+    #[test]
+    fn empty_overrides_equal_builtin() {
+        let e = ev("claude-opus-4", 1_000_000, 1_000_000);
+        let empty = std::collections::HashMap::new();
+        let a = estimate_cost("claude-opus-4", &e).unwrap();
+        let b = estimate_cost_with("claude-opus-4", &e, &empty).unwrap();
+        assert!((a - b).abs() < 1e-12);
+    }
+
+    #[test]
+    fn estimate_cost_consults_installed_global() {
+        // unique model name so the installed global can't disturb other
+        // tests (they look up different keys and miss)
+        let m = "global-delegation-test-model-only";
+        let e = ev(m, 1_000_000, 0);
+        assert!(
+            estimate_cost(m, &e).is_none(),
+            "no builtin, no override yet"
+        );
+        let mut map = std::collections::HashMap::new();
+        map.insert(
+            m.to_string(),
+            PricingOverride {
+                input: Some(7.0),
+                output: Some(7.0),
+            },
+        );
+        set_pricing_overrides(map); // OnceLock: first set in the binary wins
+        let got = estimate_cost(m, &e).expect("global override applies");
+        assert!((got - 7.0).abs() < 1e-9);
+    }
 }
 
 /// Compact human-readable byte/token counts: 1.2M, 847k, 512

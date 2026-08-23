@@ -15,11 +15,11 @@ pub struct Registry {
 }
 
 impl Registry {
-    pub fn scan(home: &Path) -> Self {
+    pub fn scan(home: &Path, cfg: &crate::config::Config) -> Self {
         let mut statuses = Vec::new();
         let mut events = Vec::new();
 
-        // Claude Code
+        // Claude Code (+ extra roots from config)
         let claude_ok = claude::detected(home);
         statuses.push(ProviderStatus {
             name: "claude-code".into(),
@@ -27,7 +27,7 @@ impl Registry {
             detail: "~/.claude/projects".into(),
         });
         if claude_ok {
-            events.extend(claude::ClaudeProvider::load(home));
+            events.extend(claude::ClaudeProvider::load(home, &cfg.claude_roots()));
         }
 
         // Codex
@@ -66,14 +66,14 @@ impl Registry {
 
         // Ollama (local API; not under $HOME but a running service)
         let (ollama_ok, ollama_detail) =
-            ollama::status().unwrap_or((false, "ollama @ localhost:11434".into()));
+            ollama::status(cfg.ollama_url()).unwrap_or((false, "ollama @ localhost:11434".into()));
         statuses.push(ProviderStatus {
             name: "ollama".into(),
             detected: ollama_ok,
             detail: ollama_detail,
         });
         if ollama_ok {
-            events.extend(ollama::OllamaProvider::load());
+            events.extend(ollama::OllamaProvider::load(cfg.ollama_url()));
         }
 
         // opencode

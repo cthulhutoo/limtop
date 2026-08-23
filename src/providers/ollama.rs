@@ -17,9 +17,9 @@ pub struct OllamaProvider;
 const DEFAULT_URL: &str = "http://localhost:11434";
 
 impl OllamaProvider {
-    pub fn load() -> Vec<UsageEvent> {
+    pub fn load(configured_url: Option<&str>) -> Vec<UsageEvent> {
         // Try API detection first: quick, cross-platform.
-        let api_up = ureq::get(&format!("{}/api/tags", url()))
+        let api_up = ureq::get(&format!("{}/api/tags", url(configured_url)))
             .timeout(std::time::Duration::from_secs(2))
             .call()
             .map(|r| r.status() < 300)
@@ -31,8 +31,13 @@ impl OllamaProvider {
     }
 }
 
-fn url() -> String {
-    std::env::var("LIMTOP_OLLAMA_URL").unwrap_or_else(|_| DEFAULT_URL.into())
+/// Effective ollama URL: env `LIMTOP_OLLAMA_URL` beats config file beats
+/// default localhost:11434.
+fn url(configured: Option<&str>) -> String {
+    std::env::var("LIMTOP_OLLAMA_URL")
+        .ok()
+        .or_else(|| configured.map(|s| s.to_string()))
+        .unwrap_or_else(|| DEFAULT_URL.into())
 }
 
 /// Parse GIN access lines from `journalctl -u ollama`.
@@ -112,9 +117,9 @@ fn is_inference_call(msg: &str) -> bool {
         && !msg.contains(" 4") // crude status filter beyond 200/3xx
 }
 
-pub fn status() -> Option<(bool, String)> {
+pub fn status(configured_url: Option<&str>) -> Option<(bool, String)> {
     // live API check
-    match ureq::get(&format!("{}/api/tags", url()))
+    match ureq::get(&format!("{}/api/tags", url(configured_url)))
         .timeout(std::time::Duration::from_secs(2))
         .call()
     {
@@ -125,7 +130,10 @@ pub fn status() -> Option<(bool, String)> {
                 .and_then(|body| serde_json::from_str::<serde_json::Value>(&body).ok())
                 .and_then(|v| v.get("models").and_then(|m| m.as_array()).map(|a| a.len()))
                 .unwrap_or(0);
-            Some((true, format!("ollama @ {} ({} models)", url(), n)))
+            Some((
+                true,
+                format!("ollama @ {} ({} models)", url(configured_url), n),
+            ))
         }
         _ => None,
     }

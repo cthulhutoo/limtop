@@ -10,36 +10,46 @@ use std::path::{Path, PathBuf};
 pub struct ClaudeProvider;
 
 impl ClaudeProvider {
-    /// Load every usage event across all projects.
-    pub fn load(home: &Path) -> Vec<UsageEvent> {
-        let root = home.join(".claude").join("projects");
+    /// Load every usage event across all projects: ~/.claude/projects plus
+    /// any extra roots from config (each scanned for its projects/ subdir).
+    pub fn load(home: &Path, extra_roots: &[String]) -> Vec<UsageEvent> {
         let mut out = Vec::new();
-        let Ok(entries) = fs::read_dir(&root) else {
-            return out;
+        let root = home.join(".claude").join("projects");
+        walk_projects(&root, &mut out);
+        for extra in extra_roots {
+            let p = std::path::PathBuf::from(extra).join("projects");
+            walk_projects(&p, &mut out);
+        }
+        out
+    }
+}
+
+/// Walk a projects/ root dir: one subdir per project, one .jsonl per session.
+fn walk_projects(root: &Path, out: &mut Vec<UsageEvent>) {
+    let Ok(entries) = fs::read_dir(root) else {
+        return;
+    };
+    for proj_dir in entries.flatten() {
+        let path = proj_dir.path();
+        if !path.is_dir() {
+            continue;
+        }
+        // Decode project dir name ("-home-rdc-foo" → "~/foo")
+        let project = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .map(decode_project_dir)
+            .unwrap_or_default();
+        let Ok(files) = fs::read_dir(&path) else {
+            continue;
         };
-        for proj_dir in entries.flatten() {
-            let path = proj_dir.path();
-            if !path.is_dir() {
+        for f in files.flatten() {
+            let fp = f.path();
+            if fp.extension().and_then(|e| e.to_str()) != Some("jsonl") {
                 continue;
-            }
-            // Decode project dir name ("-home-rdc-foo" → "~/foo")
-            let project = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .map(decode_project_dir)
-                .unwrap_or_default();
-            let Ok(files) = fs::read_dir(&path) else {
-                continue;
-            };
-            for f in files.flatten() {
-                let fp = f.path();
-                if fp.extension().and_then(|e| e.to_str()) != Some("jsonl") {
-                    continue;
-                }
                 out.extend(parse_jsonl(&fp, &project));
             }
         }
-        out
     }
 }
 

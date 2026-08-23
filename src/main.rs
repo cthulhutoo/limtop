@@ -1,4 +1,5 @@
 mod aggregator;
+mod config;
 mod model;
 mod providers;
 mod rate_window;
@@ -108,6 +109,13 @@ fn main() {
 
     let home = dirs::home_dir().expect("cannot resolve $HOME");
 
+    // ── config (~/.config/limtop.toml, all-optional) ────────────────
+    let mut cfg = config::Config::load();
+    let plan = cfg.plan_or_env();
+    // pricing overrides go into a global the cost estimator consults; set
+    // once here (OnceLock: first write wins, scans re-read it for free)
+    model::set_pricing_overrides(cfg.pricing.take().unwrap_or_default());
+
     // ── streaming mode: --dump/--json + --watch ────────────────────
     if dump && watch {
         // Redraw a fresh snapshot every `interval_secs` seconds. Exit is
@@ -123,15 +131,15 @@ fn main() {
         loop {
             // Scan FIRST: the previous frame stays visible while the
             // (possibly slow) filesystem scan runs — no blank window.
-            let reg = Registry::scan(&home); // fresh data every cycle
+            let reg = Registry::scan(&home, &cfg); // fresh data every cycle
             if interactive {
                 print!("\x1b[2J\x1b[H"); // clear screen, home cursor
                 io::stdout().flush().ok();
             }
             if json {
-                dump_json(&reg, span);
+                dump_json(&reg, span, plan.as_deref());
             } else {
-                dump_report(&reg, span);
+                dump_report(&reg, span, plan.as_deref());
             }
             // Explicit flush: stdout is block-buffered when redirected to
             // a file, and the process may be SIGTERM/SIGINT-killed during
@@ -141,14 +149,14 @@ fn main() {
         }
     }
 
-    let reg = Registry::scan(&home);
+    let reg = Registry::scan(&home, &cfg);
 
     if dump && json {
-        dump_json(&reg, span);
+        dump_json(&reg, span, plan.as_deref());
         return;
     }
     if dump {
-        dump_report(&reg, span);
+        dump_report(&reg, span, plan.as_deref());
         return;
     }
 
@@ -174,12 +182,12 @@ fn main() {
             None => true,
         };
         if need_rescan || fresh {
-            last_scan = Some((Registry::scan(&home), now_epoch()));
+            last_scan = Some((Registry::scan(&home, &cfg), now_epoch()));
             need_rescan = false;
         }
         let (reg, _) = last_scan.as_ref().expect("scan exists");
         let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
-        let window = rate_window::RateWindow::build(&reg.events, now_epoch());
+        let window = rate_window::RateWindow::build(&reg.events, now_epoch(), plan.as_deref());
 
         match drill.as_mut() {
             None => {
@@ -250,10 +258,10 @@ fn main() {
     ratatui::restore();
 }
 
-fn dump_json(reg: &Registry, span: Span) {
+fn dump_json(reg: &Registry, span: Span, plan: Option<&str>) {
     let now = now_epoch();
     let dash = Dashboard::build(reg.events.clone(), span, now);
-    let window = rate_window::RateWindow::build(&reg.events, now);
+    let window = rate_window::RateWindow::build(&reg.events, now, plan);
     let snap = snapshot::Snapshot::build(reg, &dash, window, now);
     println!(
         "{}",
@@ -261,9 +269,9 @@ fn dump_json(reg: &Registry, span: Span) {
     );
 }
 
-fn dump_report(reg: &Registry, span: Span) {
+fn dump_report(reg: &Registry, span: Span, plan: Option<&str>) {
     let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
-    let window = rate_window::RateWindow::build(&reg.events, now_epoch());
+    let window = rate_window::RateWindow::build(&reg.events, now_epoch(), plan);
     println!("limtop — AI usage report (span: {})", dash.span);
     println!();
     if let Some(w) = &window {
