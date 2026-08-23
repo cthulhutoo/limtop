@@ -91,6 +91,11 @@ limtop never makes a network request. All data comes from local session
 files and provider state on your machine. There is no analytics, no
 phone-home, no config file.
 
+## Roadmap
+
+See [ROADMAP.md](ROADMAP.md) — v0.4 focuses on deeper Claude-window
+insight (per-model buckets, config file, metrics export).
+
 ## License
 
 MIT
