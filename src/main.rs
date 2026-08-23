@@ -8,7 +8,7 @@ mod tui;
 use aggregator::Dashboard;
 use model::Span;
 use providers::Registry;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn now_epoch() -> i64 {
@@ -48,8 +48,9 @@ fn parse_watch_interval(args: &[String]) -> (bool, u64) {
             }
         } else if let Some(v) = arg.strip_prefix("--watch=") {
             watch = true;
-            if let Ok(n) = v.parse::<u64>() {
-                secs = Some(n);
+            match v.parse::<u64>() {
+                Ok(n) => secs = Some(n),
+                Err(_) => eprintln!("limtop: bad --watch interval {v:?} (using 5s)"),
             }
         }
     }
@@ -115,10 +116,18 @@ fn main() {
         // read-only and every frame is fully flushed before sleeping, so
         // dying mid-loop leaves nothing to clean up.
         let sleep_for = Duration::from_secs(interval_secs);
+        // Only emit the ANSI clear when stdout is a terminal: piped or
+        // redirected output must stay byte-clean (zero escape bytes) so
+        // `limtop --watch --json > log` remains parseable.
+        let interactive = std::io::stdout().is_terminal();
         loop {
-            print!("\x1b[2J\x1b[H"); // clear screen, home cursor
-            io::stdout().flush().ok();
+            // Scan FIRST: the previous frame stays visible while the
+            // (possibly slow) filesystem scan runs — no blank window.
             let reg = Registry::scan(&home); // fresh data every cycle
+            if interactive {
+                print!("\x1b[2J\x1b[H"); // clear screen, home cursor
+                io::stdout().flush().ok();
+            }
             if json {
                 dump_json(&reg, span);
             } else {
@@ -337,5 +346,19 @@ mod tests {
         );
         // garbage interval falls back to default
         assert_eq!(parse_watch_interval(&args(&["--watch=abc"])), (true, 5));
+        // bare --watch followed by a flag: the flag is NOT consumed as
+        // an interval (only a numeric next arg counts)
+        assert_eq!(
+            parse_watch_interval(&args(&["--watch", "--json"])),
+            (true, 5)
+        );
+        // repeated --watch: the last value wins
+        assert_eq!(
+            parse_watch_interval(&args(&["--watch=5", "--watch=7"])),
+            (true, 7)
+        );
+        // negative value fails u64 parsing → falls back to default 5,
+        // NOT clamped to the 1s minimum (fallback ≠ clamp)
+        assert_eq!(parse_watch_interval(&args(&["--watch=-5"])), (true, 5));
     }
 }
