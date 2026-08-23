@@ -1,6 +1,6 @@
 [package]
 name = "limtop"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 description = "btop for AI usage — a TUI dashboard for LLM tokens, costs, and rate-limit windows across CLI coding agents"
 license = "MIT"
