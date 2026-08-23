@@ -8,7 +8,7 @@ mod tui;
 use aggregator::Dashboard;
 use model::Span;
 use providers::Registry;
-use std::io;
+use std::io::{self, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 fn now_epoch() -> i64 {
@@ -18,16 +18,73 @@ fn now_epoch() -> i64 {
         .unwrap_or(0)
 }
 
+/// Default `--watch` refresh interval, in seconds.
+const WATCH_DEFAULT_SECS: u64 = 5;
+/// `--watch` interval is clamped to 1s ..= 1h.
+const WATCH_MIN_SECS: u64 = 1;
+const WATCH_MAX_SECS: u64 = 3600;
+
+/// Extract the `--watch` flag and its interval from the CLI args.
+///
+/// Accepted forms:
+///   `--watch`   → enabled, default interval
+///   `--watch=N` → enabled, interval N seconds
+///   `--watch N` → enabled, interval N seconds (N must parse as u64)
+///
+/// The interval is clamped to `WATCH_MIN_SECS..=WATCH_MAX_SECS`; values
+/// that don't parse as a number fall back to the default. Returns
+/// `(watch_enabled, seconds)`.
+fn parse_watch_interval(args: &[String]) -> (bool, u64) {
+    let mut watch = false;
+    let mut secs: Option<u64> = None;
+    for (i, arg) in args.iter().enumerate() {
+        if arg == "--watch" {
+            watch = true;
+            // following-value form: `--watch 10`
+            if let Some(next) = args.get(i + 1) {
+                if let Ok(n) = next.parse::<u64>() {
+                    secs = Some(n);
+                }
+            }
+        } else if let Some(v) = arg.strip_prefix("--watch=") {
+            watch = true;
+            if let Ok(n) = v.parse::<u64>() {
+                secs = Some(n);
+            }
+        }
+    }
+    (
+        watch,
+        secs.unwrap_or(WATCH_DEFAULT_SECS)
+            .clamp(WATCH_MIN_SECS, WATCH_MAX_SECS),
+    )
+}
+
 fn main() {
     // ── CLI args ───────────────────────────────────────────────────
+    // Args are collected into a Vec so `--watch N` can peek at the
+    // following value, and so parse_watch_interval can scan the whole
+    // command line.
+    let args: Vec<String> = std::env::args().skip(1).collect();
     let mut dump = false;
     let mut json = false;
     let mut span = Span::Day;
-    for arg in std::env::args().skip(1) {
-        match arg.as_str() {
+    let mut i = 0;
+    while i < args.len() {
+        match args[i].as_str() {
             "--dump" => dump = true,
             "--once" => dump = true, // alias: one-shot, no TUI
             "--json" => json = true,
+            // The --watch flag and its interval are parsed wholesale by
+            // parse_watch_interval below; here we only make sure the flag
+            // (and a following numeric interval) doesn't trip the
+            // unknown-flag warning below.
+            "--watch" => {
+                if args.get(i + 1).is_some_and(|v| v.parse::<u64>().is_ok()) {
+                    i += 1; // consume the interval value of `--watch N`
+                }
+            }
+            other if other.starts_with("--watch=") => {} // `--watch=N`
             "--all" => span = Span::All,
             "--week" => span = Span::Week,
             "--month" => span = Span::Month,
@@ -37,13 +94,44 @@ fn main() {
             }
             _ => {}
         }
+        i += 1;
     }
+
+    let (watch, interval_secs) = parse_watch_interval(&args);
 
     // --json implies one-shot: a bare `limtop --json` must print the
     // snapshot and exit, never fall through into the (headless-hostile) TUI.
-    let dump = dump || json;
+    // --watch implies dump too: a bare `limtop --watch` streams the text
+    // report.
+    let dump = dump || json || watch;
 
     let home = dirs::home_dir().expect("cannot resolve $HOME");
+
+    // ── streaming mode: --dump/--json + --watch ────────────────────
+    if dump && watch {
+        // Redraw a fresh snapshot every `interval_secs` seconds. Exit is
+        // Ctrl-C: we never enter raw mode, so relying on the kernel's
+        // default SIGINT termination is deliberate — the reporter is
+        // read-only and every frame is fully flushed before sleeping, so
+        // dying mid-loop leaves nothing to clean up.
+        let sleep_for = Duration::from_secs(interval_secs);
+        loop {
+            print!("\x1b[2J\x1b[H"); // clear screen, home cursor
+            io::stdout().flush().ok();
+            let reg = Registry::scan(&home); // fresh data every cycle
+            if json {
+                dump_json(&reg, span);
+            } else {
+                dump_report(&reg, span);
+            }
+            // Explicit flush: stdout is block-buffered when redirected to
+            // a file, and the process may be SIGTERM/SIGINT-killed during
+            // the sleep — each frame must land before then.
+            io::stdout().flush().ok();
+            std::thread::sleep(sleep_for);
+        }
+    }
+
     let reg = Registry::scan(&home);
 
     if dump && json {
@@ -210,4 +298,44 @@ fn summarize(t: &model::UsageTotals) -> String {
         model::fmt_cost(t.cost),
         t.events
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_watch_interval;
+
+    fn args(list: &[&str]) -> Vec<String> {
+        list.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn watch_interval_parsing() {
+        // no flag → disabled, default interval
+        assert_eq!(parse_watch_interval(&args(&[])), (false, 5));
+        assert_eq!(
+            parse_watch_interval(&args(&["--dump", "--all"])),
+            (false, 5)
+        );
+        // bare --watch → enabled, default interval
+        assert_eq!(parse_watch_interval(&args(&["--watch"])), (true, 5));
+        // --watch=N
+        assert_eq!(parse_watch_interval(&args(&["--watch=10"])), (true, 10));
+        // --watch N (following-value form)
+        assert_eq!(parse_watch_interval(&args(&["--watch", "10"])), (true, 10));
+        // flags around it don't disturb the interval
+        assert_eq!(
+            parse_watch_interval(&args(&["--dump", "--watch=3", "--json"])),
+            (true, 3)
+        );
+        // clamp: below minimum → 1
+        assert_eq!(parse_watch_interval(&args(&["--watch=0"])), (true, 1));
+        assert_eq!(parse_watch_interval(&args(&["--watch", "0"])), (true, 1));
+        // clamp: above maximum → 3600
+        assert_eq!(
+            parse_watch_interval(&args(&["--watch=99999"])),
+            (true, 3600)
+        );
+        // garbage interval falls back to default
+        assert_eq!(parse_watch_interval(&args(&["--watch=abc"])), (true, 5));
+    }
 }
