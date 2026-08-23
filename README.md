@@ -93,8 +93,9 @@ phone-home, no config file.
 
 ## Roadmap
 
-See [ROADMAP.md](ROADMAP.md) — v0.4 focuses on deeper Claude-window
-insight (per-model buckets, config file, metrics export).
+See [ROADMAP.md](ROADMAP.md) — v0.3.x ships machine-readable output +
+config + release binaries; v0.4 makes cost analytics the headline:
+invoice projection, weekly reports, per-model window buckets.
 
 ## License
 
