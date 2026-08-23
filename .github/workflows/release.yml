@@ -1,0 +1,95 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release --locked
+
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            runner: ubuntu-latest
+          - target: aarch64-apple-darwin
+            runner: macos-latest
+          - target: x86_64-apple-darwin
+            runner: macos-13
+    runs-on: ${{ matrix.runner }}
+    env:
+      TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+      - name: Build
+        run: cargo build --release --locked --target "$TARGET"
+      - name: Package
+        run: |
+          set -euo pipefail
+          ARCHIVE="limtop-${GITHUB_REF_NAME}-${TARGET}.tar.gz"
+          # single binary only — no target/ dir contents
+          tar -czf "$ARCHIVE" -C "target/${TARGET}/release" limtop
+          shasum -a 256 "$ARCHIVE" > "${ARCHIVE}.sha256"
+          cat "${ARCHIVE}.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.target }}
+          path: |
+            limtop-*.tar.gz
+            limtop-*.tar.gz.sha256
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # full history + tags for changelog
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate release notes
+        run: |
+          set -euo pipefail
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" || true)
+          {
+            echo "## Changes"
+            echo
+            if [ -n "$PREV_TAG" ]; then
+              echo "Commits since ${PREV_TAG}:"
+              echo
+              git log --oneline "${PREV_TAG}..${GITHUB_REF_NAME}"
+            else
+              git log --oneline -20 "${GITHUB_REF_NAME}"
+            fi
+            echo
+            echo "## Install"
+            echo
+            echo 'Download the tarball for your platform, verify it against the matching `.sha256` file (`shasum -a 256 -c <file>`), extract, and put `limtop` on your `PATH`.'
+          } > NOTES.md
+          cat NOTES.md
+          ls -la dist/
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/limtop-*.tar.gz dist/limtop-*.tar.gz.sha256 --title "$GITHUB_REF_NAME" --notes-file NOTES.md
