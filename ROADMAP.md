@@ -12,10 +12,11 @@ history and money layer other tools skip.
 
 **Parity basics every CLI tool deserves**
 
-- [ ] `limtop --json` / `--once` — one-shot machine-readable snapshot for
+- [x] `limtop --json` / `--once` — one-shot machine-readable snapshot for
       scripts, cron, waybar/status-bar modules
-- [ ] `limtop --dump --watch` — stream the report like `watch limtop --dump`
-- [ ] Config file `~/.config/limtop.toml` — theme, plan limits, pricing
+- [x] `limtop --dump --watch` — stream the report like `watch limtop --dump`
+      (`--watch[=N]`, 5s default, 1–3600s clamp)
+- [x] Config file `~/.config/limtop.toml` — plan limits, ollama url, pricing
       overrides, extra profile roots (`~/.claude-work`, `~/.claude-personal`)
 - [ ] Release binaries on tag push (macOS + Linux, preferably an installer
       script) — brew installs compile from source today

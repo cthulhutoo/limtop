@@ -78,6 +78,44 @@ In the TUI:
     r        rescan providers
     q        quit
 
+## Headless & scripting
+
+    limtop --json            # one-shot JSON snapshot — never launches the TUI
+    limtop --once            # same, plain text (alias for --dump)
+    limtop --watch           # refresh every 5s — Ctrl-C to quit
+    limtop --watch=10        # ...every 10s (`--watch 10` also works; 1–3600s)
+    limtop --json --watch=5  # streaming JSON
+
+`--json` implies one-shot, so bare `limtop --json` drops straight into
+scripts. Keys are camelCase (`totals.inputTokens`, `window.burnRate`, ...);
+`window` is `null` when no Claude rate window is active. Piped `--json`
+output is byte-clean — no ANSI escapes — so line-oriented tools just work:
+
+    limtop --json | jq '.totals.cost'
+    limtop --json | jq '.window.usedTokens // 0'
+    limtop --json --watch=10 | jq --unbuffered -c '{cost: .totals.cost}'
+
+The last one is a ready-made status-bar module (waybar, i3blocks, a spare
+tmux pane). `limtop --dump --watch` streams the text report the same way,
+like `watch limtop --dump` without the rerun. Unknown flags warn on stderr
+and are otherwise ignored.
+
+## Configuration
+
+Zero config is the default; every key is optional. `~/.config/limtop.toml`:
+
+    # Claude 5h window limit: pro | max5 | max20 | custom:N (or plain tokens)
+    plan = "max20"
+    ollama_url = "http://nas:11434"             # ollama API endpoint
+    extra_claude_dirs = ["~/work/claude-alt"]   # each scanned for projects/
+
+    [pricing."glm-4.7"]   # USD per Mtok — patches the builtin pricing table
+    input = 3.0
+    output = 12.0
+
+Precedence is env > file > defaults: `LIMTOP_CLAUDE_LIMIT` and
+`LIMTOP_OLLAMA_URL` always win over their toml counterparts.
+
 ## Cost estimates
 
 Costs are computed from a static pricing table (USD per million tokens,
@@ -87,9 +125,10 @@ LM Studio) show $0.
 
 ## Privacy
 
-limtop never makes a network request. All data comes from local session
-files and provider state on your machine. There is no analytics, no
-phone-home, no config file.
+limtop never makes a network request on your behalf. All data comes from
+local session files and provider state on your machine. There is no
+analytics and no phone-home; the optional config file is read locally and
+never leaves your disk.
 
 ## Roadmap
 
