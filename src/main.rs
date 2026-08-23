@@ -32,9 +32,16 @@ fn main() {
             "--week" => span = Span::Week,
             "--month" => span = Span::Month,
             "--hour" => span = Span::Hour,
+            other if other.starts_with("--") => {
+                eprintln!("limtop: unknown flag {other} (ignored)")
+            }
             _ => {}
         }
     }
+
+    // --json implies one-shot: a bare `limtop --json` must print the
+    // snapshot and exit, never fall through into the (headless-hostile) TUI.
+    let dump = dump || json;
 
     let home = dirs::home_dir().expect("cannot resolve $HOME");
     let reg = Registry::scan(&home);
@@ -147,9 +154,10 @@ fn main() {
 }
 
 fn dump_json(reg: &Registry, span: Span) {
-    let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
-    let window = rate_window::RateWindow::build(&reg.events, now_epoch());
-    let snap = snapshot::Snapshot::build(reg, &dash, window, now_epoch());
+    let now = now_epoch();
+    let dash = Dashboard::build(reg.events.clone(), span, now);
+    let window = rate_window::RateWindow::build(&reg.events, now);
+    let snap = snapshot::Snapshot::build(reg, &dash, window, now);
     println!(
         "{}",
         serde_json::to_string_pretty(&snap).expect("snapshot serializes")

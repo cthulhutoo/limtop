@@ -361,7 +361,10 @@ fn render_providers(f: &mut Frame, area: Rect, statuses: &[ProviderStatus], d: &
 // ---------------------------------------------------------------------------
 fn render_footer(f: &mut Frame, area: Rect) {
     fn key(k: &str) -> RSpan<'static> {
-        RSpan::styled(k.to_string(), Style::default().fg(ACCENT).add_modifier(Modifier::BOLD))
+        RSpan::styled(
+            k.to_string(),
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        )
     }
     fn lbl(l: &str) -> RSpan<'static> {
         RSpan::styled(l.to_string(), Style::default().fg(DIM))

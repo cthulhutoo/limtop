@@ -32,6 +32,7 @@ impl UsageEvent {
 
 /// Aggregate over a window.
 #[derive(Debug, Clone, Default, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct UsageTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
