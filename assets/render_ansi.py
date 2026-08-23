@@ -120,11 +120,16 @@ def parse_ansi(text):
 def render(text, out_path, scale=1):
     rows = parse_ansi(text)
     cols = max((len(r) for r in rows), default=0)
-    font_size = 20 * scale
+    font_size = 26 * scale
     font, true_font = load_font(font_size)
-    cw = (font_size + 1) if true_font else int(font_size * 0.6)
-    ch = int(font_size * 1.25)
-    pad = 12 * scale
+    if true_font:
+        # cell width = font's real monospace advance (no letter-spacing gaps)
+        cw = round(font.getlength("M"))
+        # row height = full glyph extent so box-drawing chars tile seamlessly
+        ch = sum(font.getmetrics())  # type: ignore[attr-defined]
+    else:
+        cw, ch = int(font_size * 0.6), font_size + 2
+    pad = 16 * scale
     W = pad * 2 + cols * cw
     H = pad * 2 + len(rows) * ch
     img = Image.new("RGB", (W, H), (11, 13, 19))
@@ -142,7 +147,7 @@ def render(text, out_path, scale=1):
                 col = tuple(min(255, int(v * 1.08) + 18) for v in col)
             d.text((px, py), c, fill=col, font=font)
     img.save(out_path)
-    print(f"{out_path}: {W}x{H}, {len(rows)} rows, {cols} cols")
+    print(f"{out_path}: {W}x{H}, {len(rows)} rows, {cols} cols, cell {cw}x{ch}")
 
 
 def load_font(size):
