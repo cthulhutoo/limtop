@@ -4,7 +4,7 @@
 [![CI](https://github.com/cthulhutoo/limtop/actions/workflows/ci.yml/badge.svg)](https://github.com/cthulhutoo/limtop/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
-![limtop dashboard](assets/rate-hero.png?v=3)
+![limtop dashboard](assets/rate-hero.png?v=4)
 
 **btop for AI usage.** A single Rust binary that reads the CLI coding agents
 you already use — Claude Code, opencode, Hermes — and shows tokens, cost,
@@ -24,8 +24,8 @@ see everything.
 
 | | |
 |---|---|
-| ![dashboard](assets/rate-hero.png?v=3) | ![projects](assets/projects-list.png?v=3) |
-| ![project detail](assets/project-detail.png?v=3) | ![rate window](assets/rate-window.png?v=3) |
+| ![dashboard](assets/rate-hero.png?v=4) | ![projects](assets/projects-list.png?v=4) |
+| ![project detail](assets/project-detail.png?v=4) | ![rate window](assets/rate-window.png?v=4) |
 
 ## Install
 
