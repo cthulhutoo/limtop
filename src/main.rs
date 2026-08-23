@@ -2,6 +2,7 @@ mod aggregator;
 mod model;
 mod providers;
 mod rate_window;
+mod snapshot;
 mod tui;
 
 use aggregator::Dashboard;
@@ -20,10 +21,13 @@ fn now_epoch() -> i64 {
 fn main() {
     // ── CLI args ───────────────────────────────────────────────────
     let mut dump = false;
+    let mut json = false;
     let mut span = Span::Day;
     for arg in std::env::args().skip(1) {
         match arg.as_str() {
             "--dump" => dump = true,
+            "--once" => dump = true, // alias: one-shot, no TUI
+            "--json" => json = true,
             "--all" => span = Span::All,
             "--week" => span = Span::Week,
             "--month" => span = Span::Month,
@@ -35,6 +39,10 @@ fn main() {
     let home = dirs::home_dir().expect("cannot resolve $HOME");
     let reg = Registry::scan(&home);
 
+    if dump && json {
+        dump_json(&reg, span);
+        return;
+    }
     if dump {
         dump_report(&reg, span);
         return;
@@ -136,6 +144,16 @@ fn main() {
     }
 
     ratatui::restore();
+}
+
+fn dump_json(reg: &Registry, span: Span) {
+    let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
+    let window = rate_window::RateWindow::build(&reg.events, now_epoch());
+    let snap = snapshot::Snapshot::build(reg, &dash, window, now_epoch());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&snap).expect("snapshot serializes")
+    );
 }
 
 fn dump_report(reg: &Registry, span: Span) {

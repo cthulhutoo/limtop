@@ -31,7 +31,7 @@ impl UsageEvent {
 }
 
 /// Aggregate over a window.
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, Default, serde::Serialize)]
 pub struct UsageTotals {
     pub input_tokens: u64,
     pub output_tokens: u64,
@@ -57,7 +57,7 @@ impl UsageTotals {
 }
 
 /// A discovered provider installation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Serialize)]
 pub struct ProviderStatus {
     pub name: String,
     pub detected: bool,

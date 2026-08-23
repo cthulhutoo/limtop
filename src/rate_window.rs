@@ -10,7 +10,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 ///   LIMTOP_CLAUDE_LIMIT=pro|max5|max20|custom:<n>   (default: pro)
 ///
 /// Presets are community-observed approximations, not official numbers.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct RateWindow {
     /// epoch seconds when the current window started
     pub window_start: i64,
