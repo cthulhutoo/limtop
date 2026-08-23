@@ -27,7 +27,7 @@ jobs:
           - target: aarch64-apple-darwin
             runner: macos-latest
           - target: x86_64-apple-darwin
-            runner: macos-13
+            runner: macos-latest  # arm64 runner; x86_64 cross-compiles from it
     runs-on: ${{ matrix.runner }}
     env:
       TARGET: ${{ matrix.target }}
