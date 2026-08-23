@@ -1,11 +1,17 @@
 # limtop
 
+[![Crates.io](https://img.shields.io/crates/v/limtop.svg)](https://crates.io/crates/limtop)
+[![CI](https://github.com/cthulhutoo/limtop/actions/workflows/ci.yml/badge.svg)](https://github.com/cthulhutoo/limtop/actions/workflows/ci.yml)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
 ![limtop dashboard](assets/rate-hero.png)
 
 **btop for AI usage.** A single Rust binary that reads the CLI coding agents
 you already use — Claude Code, opencode, Hermes — and shows tokens, cost,
 cache behavior, and burn-rate in one terminal dashboard. No server, no
 account, no telemetry: everything is read from local files on disk.
+
+> Formerly **aitop** — renamed after a crates.io name collision.
 
 ## Why
 
@@ -19,14 +25,14 @@ see everything.
 | | |
 |---|---|
 | ![dashboard](assets/rate-hero.png) | ![projects](assets/projects-list.png) |
-| ![project detail](assets/project-detail.png) | ![rate window](assets/dashboard.png) |
+| ![project detail](assets/project-detail.png) | ![rate window](assets/rate-window.png) |
 
 ## Install
 
     # Homebrew (macOS / Linuxbrew)
     brew install cthulhutoo/limtop/limtop
 
-    # Cargo (once published on crates.io)
+    # Cargo
     cargo install limtop
 
     # From source
