@@ -64,7 +64,7 @@ impl Dashboard {
             let p = e.project.clone().unwrap_or_else(|| "—".into());
             proj.entry(p).or_default().add(e);
         }
-        let mut sort_tot = |m: BTreeMap<String, UsageTotals>| -> Vec<(String, UsageTotals)> {
+        let sort_tot = |m: BTreeMap<String, UsageTotals>| -> Vec<(String, UsageTotals)> {
             let mut v: Vec<_> = m.into_iter().collect();
             v.sort_by(|a, b| b.1.total_tokens().cmp(&a.1.total_tokens()));
             v

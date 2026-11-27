@@ -61,13 +61,15 @@ impl Drilldown {
             .iter()
             .filter(|e| e.project.as_deref() == Some(name.as_str()))
             .fold(Vec::new(), |mut acc, e| {
-                // group by model
-                if let Some(slot) = acc.iter_mut().find(|(m, _)| m == &e.model) {
+                // group by canonical model (raw names merge: pricing is
+                // already computed per-event upstream)
+                let key = crate::aggregator::canonical_model(&e.model);
+                if let Some(slot) = acc.iter_mut().find(|(m, _)| *m == key) {
                     slot.1.add(e);
                 } else {
                     let mut t = UsageTotals::default();
                     t.add(e);
-                    acc.push((e.model.clone(), t));
+                    acc.push((key, t));
                 }
                 acc
             });

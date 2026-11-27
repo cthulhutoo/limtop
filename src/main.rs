@@ -165,14 +165,17 @@ fn main() {
     // ── TUI loop ───────────────────────────────────────────────────
     let mut terminal = ratatui::init();
     let mut span = span;
-    let mut last_scan: Option<(Registry, i64)> = None;
+    // Money is span-independent (calendar month over ALL events), so it is
+    // computed ONCE per rescan, next to the scan itself — never per frame.
+    // Cache stats ARE span-dependent, so they are recomputed per frame from
+    // dash.events (same linear pass the dashboard already pays for).
+    let mut last_scan: Option<(Registry, i64, money::MoneyView)> = None;
     let mut need_rescan = true;
 
     // drill-down state (project list / detail), 'p' toggles
     let mut drill: Option<tui::drilldown::Drilldown> = None;
 
     let tick_rate = Duration::from_millis(1000);
-    let mut last_tick = std::time::Instant::now();
 
     let res = io::stdin();
     let _ = res;
@@ -180,21 +183,27 @@ fn main() {
     loop {
         // rescan every 30s or on demand
         let fresh = match &last_scan {
-            Some((_, at)) => now_epoch() - at > 30,
+            Some((_, at, _)) => now_epoch() - at > 30,
             None => true,
         };
         if need_rescan || fresh {
-            last_scan = Some((Registry::scan(&home, &cfg), now_epoch()));
+            let now = now_epoch();
+            let reg = Registry::scan(&home, &cfg);
+            // money over ALL events (calendar month is span-independent)
+            let money = money::MoneyView::build(&reg.events, now, &cfg.budgets());
+            last_scan = Some((reg, now, money));
             need_rescan = false;
         }
-        let (reg, _) = last_scan.as_ref().expect("scan exists");
+        let (reg, _, money) = last_scan.as_ref().expect("scan exists");
         let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
         let window = rate_window::RateWindow::build(&reg.events, now_epoch(), plan.as_deref());
+        // cache stats follow the CURRENT span (dash.events is span-filtered)
+        let cache = aggregator::cache_stats(&dash.events);
 
         match drill.as_mut() {
             None => {
                 terminal
-                    .draw(|f| tui::render(f, &dash, &reg.statuses, window.as_ref()))
+                    .draw(|f| tui::render(f, &dash, &reg.statuses, window.as_ref(), money, &cache))
                     .expect("draw failed");
             }
             Some(dd) => {
@@ -254,7 +263,6 @@ fn main() {
                 }
             }
         }
-        let _ = last_tick;
     }
 
     ratatui::restore();
@@ -351,9 +359,11 @@ fn summarize(t: &model::UsageTotals) -> String {
 }
 
 /// One report line of the cache panel: `~/p  hit 87%  reads 4.2M …`.
-/// `hit  —` when the hit rate is undefined (no reads and no input).
+/// `hit  —` when the hit rate is undefined: no cache reads AND no fresh
+/// input (denominator 0) — even when writes happened, writes alone never
+/// define a hit rate, so `0%` must not masquerade as data.
 pub fn fmt_cache_line(project: &str, s: &CacheStats) -> String {
-    let hit = if s.hit_rate > 0.0 || s.reads + s.writes > 0 {
+    let hit = if s.reads > 0 || s.hit_rate > 0.0 {
         format!("hit {:>3.0}%", s.hit_rate * 100.0)
     } else {
         "hit   —".to_string()
@@ -407,6 +417,21 @@ mod tests {
         let stats0 = cache_stats(std::slice::from_ref(&zero));
         let line0 = fmt_cache_line(&stats0[0].0, &stats0[0].1);
         assert!(line0.contains("hit   —"), "got: {line0}");
+
+        // writes but no reads/input: still `—` — writes alone never define
+        // a hit rate (the old `reads + writes > 0` check printed 0% here)
+        let writes_only = UsageEvent {
+            input_tokens: 0,
+            cache_read_tokens: 0,
+            cache_write_tokens: 500,
+            ..ev.clone()
+        };
+        let statsw = cache_stats(std::slice::from_ref(&writes_only));
+        let linew = fmt_cache_line(&statsw[0].0, &statsw[0].1);
+        assert!(
+            linew.contains("hit   —") && linew.contains("writes    500"),
+            "got: {linew}"
+        );
     }
 
     fn args(list: &[&str]) -> Vec<String> {

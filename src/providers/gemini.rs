@@ -1,7 +1,7 @@
 use crate::model::{estimate_cost, UsageEvent};
 use serde_json::Value;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 /// Gemini CLI stores chat transcripts as JSONL under
 /// `~/.gemini/tmp/<project-slug>/chats/session-*.jsonl`.
@@ -112,6 +112,7 @@ fn parse_iso(s: &str) -> Option<i64> {
     Some(days * 86_400 + h * 3_600 + mi * 60 + sec)
 }
 
+#[cfg_attr(not(test), allow(dead_code))] // exercised by tests; kept as sibling-provider idiom
 fn detected(home: &Path) -> bool {
     home.join(".gemini").join("tmp").is_dir()
 }

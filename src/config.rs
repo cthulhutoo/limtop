@@ -95,6 +95,7 @@ pub fn test_env_lock() -> std::sync::MutexGuard<'static, ()> {
 }
 
 /// Parse config TOML text. Bad TOML → default (caller decides whether to warn).
+#[cfg_attr(not(test), allow(dead_code))] // test entry point; main uses load()
 pub fn parse(s: &str) -> Config {
     match toml::from_str::<Config>(s) {
         Ok(c) => c,

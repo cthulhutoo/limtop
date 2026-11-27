@@ -10,6 +10,8 @@ pub struct UsageEvent {
     /// Project / working directory context, if known.
     pub project: Option<String>,
     /// Session identifier, if known.
+    /// kept for future drill-down by session
+    #[allow(dead_code)]
     pub session: Option<String>,
     /// Unix epoch seconds.
     pub ts: i64,
@@ -25,6 +27,7 @@ pub struct UsageEvent {
 
 impl UsageEvent {
     /// Total tokens including cache traffic.
+    #[allow(dead_code)] // pub API kept for downstream use
     pub fn total_tokens(&self) -> u64 {
         self.input_tokens + self.output_tokens + self.cache_read_tokens + self.cache_write_tokens
     }
@@ -66,6 +69,7 @@ pub struct ProviderStatus {
 }
 
 /// Every provider implements this: scan disk, emit usage events.
+#[allow(dead_code)] // architecture trait: future provider impls
 pub trait Provider {
     fn name(&self) -> &'static str;
     fn detect(&self, home: &std::path::Path) -> Option<std::path::PathBuf>;

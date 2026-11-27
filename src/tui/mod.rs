@@ -1,12 +1,12 @@
-use crate::aggregator::Dashboard;
+use crate::aggregator::{CacheStats, Dashboard};
 use crate::model::{fmt_cost, fmt_tokens, ProviderStatus, UsageTotals};
+use crate::money::MoneyView;
 use crate::rate_window::RateWindow;
 pub mod drilldown;
 use ratatui::{
-    layout::{Alignment, Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span as RSpan},
-    widgets::block::Title,
     widgets::{Bar, BarChart, BarGroup, Block, Borders, Gauge, Paragraph},
     Frame,
 };
@@ -36,20 +36,22 @@ pub fn render(
     d: &Dashboard,
     statuses: &[ProviderStatus],
     window: Option<&RateWindow>,
+    money: &MoneyView,
+    cache: &[(String, CacheStats)],
 ) {
-    let mut rows = Layout::default()
+    let rows = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
             Constraint::Length(4),  // header (2 content lines)
             Constraint::Length(6),  // claude rate window (when present)
             Constraint::Length(10), // burn graph
             Constraint::Min(8),     // middle: projects + models
-            Constraint::Length(4),  // providers strip (2 content lines)
+            Constraint::Length(4),  // cache panel + providers strip (2 content lines)
             Constraint::Length(1),  // footer
         ])
         .split(f.area());
 
-    render_header(f, rows[0], d);
+    render_header(f, rows[0], d, money);
     if let Some(w) = window {
         render_window(f, rows[1], w);
         render_burn(f, rows[2], d);
@@ -64,7 +66,14 @@ pub fn render(
         render_burn(f, merged, d);
     }
     render_middle(f, rows[3], d);
-    render_providers(f, rows[4], statuses, d);
+    // bottom strip: cache panel on the right third, provider cards share
+    // the remaining width — same split idiom as the middle row.
+    let bottom = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Ratio(2, 3), Constraint::Ratio(1, 3)])
+        .split(rows[4]);
+    render_providers(f, bottom[0], statuses, d);
+    render_cache(f, bottom[1], cache);
     render_footer(f, rows[5]);
 }
 
@@ -76,10 +85,52 @@ fn now_epoch() -> i64 {
 }
 
 // ---------------------------------------------------------------------------
-// Header — two lines: primary metrics, then secondary detail
+// Header — two lines: primary metrics, then secondary detail + money summary
 // ---------------------------------------------------------------------------
-fn render_header(f: &mut Frame, area: Rect, d: &Dashboard) {
+
+/// Money summary for header line 2: `proj $3.26 by Nov 30` — month-end
+/// date derived from `days_remaining` (today counts, so month end is
+/// days_remaining − 1 days ahead). `_over` is reserved for a text variant
+/// (color is chosen by the caller); kept in the signature per plan.
+fn fmt_money_summary(projected: f64, days_remaining: u32, _over: bool) -> String {
+    let now = crate::aggregator::now_hint();
+    let (m, d) = month_end_from_days_remaining(now, days_remaining);
+    let mon = [
+        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+    ]
+    .get(m.saturating_sub(1) as usize)
+    .copied()
+    .unwrap_or("??");
+    match (mon, d) {
+        ("??", _) | (_, 0) => format!("proj ${:.2} ({}d left)", projected, days_remaining),
+        _ => format!("proj ${:.2} by {} {}", projected, mon, d),
+    }
+}
+
+/// epoch − (days_remaining − 1) days is today; add the remaining days to
+/// reach the last day of the current month → (month, day) of month end.
+/// Returns (0, 0) if the month is somehow out of range.
+fn month_end_from_days_remaining(now: i64, days_remaining: u32) -> (u32, u32) {
+    // month end = today + (days_remaining − 1) days
+    let end_ts = now + (days_remaining.saturating_sub(1)) as i64 * 86_400;
+    let (_, m, d) = crate::aggregator::civil_ymd(end_ts);
+    (m, d)
+}
+
+fn render_header(f: &mut Frame, area: Rect, d: &Dashboard, money: &MoneyView) {
     let t = &d.totals;
+    let over = money.budgets.iter().find(|b| b.over);
+    let money_color = if over.is_some() { WARN } else { COST };
+    let over_tag = match over {
+        Some(b) => vec![
+            RSpan::styled("   ⚠ ", Style::default().fg(RED)),
+            RSpan::styled(
+                format!("over budget: {}", b.project),
+                Style::default().fg(WARN).add_modifier(Modifier::BOLD),
+            ),
+        ],
+        None => vec![],
+    };
     let line1 = Line::from(vec![
         RSpan::styled(
             " limtop ",
@@ -122,7 +173,19 @@ fn render_header(f: &mut Frame, area: Rect, d: &Dashboard) {
             ),
             Style::default().fg(HEAD),
         ),
+        RSpan::styled("   ·   ", Style::default().fg(FAINT)),
+        RSpan::styled(
+            fmt_money_summary(money.projected_month, money.days_remaining, over.is_some()),
+            Style::default().fg(money_color),
+        ),
     ]);
+    let line2 = if over_tag.is_empty() {
+        line2
+    } else {
+        let mut l2 = line2;
+        l2.spans.extend(over_tag);
+        l2
+    };
     let p = Paragraph::new(vec![line1, line2]).block(block(Line::from("")));
     f.render_widget(p, area);
 }
@@ -159,7 +222,7 @@ fn render_window(f: &mut Frame, area: Rect, w: &RateWindow) {
         RSpan::styled(w.limit_name().to_string(), Style::default().fg(ACCENT)),
     ]);
 
-    let b = block(title).title(Title::from(right).alignment(Alignment::Right));
+    let b = block(title).title_top(right);
     f.render_widget(&b, area); // draw border + titles
     let inner = Layout::default()
         .direction(Direction::Vertical)
@@ -354,6 +417,58 @@ fn render_providers(f: &mut Frame, area: Rect, statuses: &[ProviderStatus], d: &
         let p = Paragraph::new(vec![line1, line2]).block(block(Line::from("")));
         f.render_widget(p, cols[i]);
     }
+}
+
+// ---------------------------------------------------------------------------
+// Cache panel — estimated re-warm dollars, top projects
+// ---------------------------------------------------------------------------
+fn render_cache(f: &mut Frame, area: Rect, cache: &[(String, CacheStats)]) {
+    let mut title = vec![
+        RSpan::styled(
+            "cache",
+            Style::default().fg(ACCENT).add_modifier(Modifier::BOLD),
+        ),
+        RSpan::styled(" · estimated", Style::default().fg(DIM)),
+    ];
+    // wall-clock hint is fine here: display-only, never a computation input
+    let rows: Vec<Line> = cache
+        .iter()
+        .take(3)
+        .map(|(project, st)| {
+            let hit = if st.reads == 0 && st.writes == 0 {
+                "  —".to_string()
+            } else if st.reads == 0 {
+                // writes but no reads: rate is undefined, show dash
+                "  —".to_string()
+            } else {
+                format!("{:3.0}%", st.hit_rate * 100.0)
+            };
+            Line::from(vec![
+                RSpan::styled("  ", Style::default()),
+                RSpan::styled(elide(project, 16), Style::default().fg(HEAD)),
+                RSpan::styled("  ", Style::default()),
+                RSpan::styled(format!("hit {}", hit), Style::default().fg(ACCENT)),
+                RSpan::styled("  ", Style::default()),
+                RSpan::styled(
+                    format!("rewarm {}", fmt_cost(st.rewarm_dollars)),
+                    Style::default().fg(if st.rewarm_dollars > 0.0 { WARN } else { DIM }),
+                ),
+            ])
+        })
+        .collect();
+    let rows = if rows.is_empty() {
+        vec![Line::from(RSpan::styled(
+            "  no cache data",
+            Style::default().fg(DIM),
+        ))]
+    } else {
+        rows
+    };
+    if cache.is_empty() {
+        title.push(RSpan::styled(" (no data)", Style::default().fg(DIM)));
+    }
+    let p = Paragraph::new(rows).block(block(Line::from(title)));
+    f.render_widget(p, area);
 }
 
 // ---------------------------------------------------------------------------

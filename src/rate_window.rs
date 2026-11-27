@@ -1,4 +1,4 @@
-use crate::model::{estimate_cost, UsageEvent};
+use crate::model::UsageEvent;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// Derived Claude rate-limit window state.
@@ -147,6 +147,8 @@ fn now_epoch() -> i64 {
 mod tests {
     use super::*;
     use crate::config::Config;
+
+    use crate::model::estimate_cost;
 
     fn ev(ts: i64, input: u64, output: u64, cache_read: u64) -> UsageEvent {
         let mut e = UsageEvent {
