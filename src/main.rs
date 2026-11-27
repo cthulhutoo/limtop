@@ -1,6 +1,7 @@
 mod aggregator;
 mod config;
 mod model;
+mod money;
 mod providers;
 mod rate_window;
 mod snapshot;
@@ -9,6 +10,7 @@ mod tui;
 use aggregator::Dashboard;
 use model::Span;
 use providers::Registry;
+use std::collections::BTreeMap;
 use std::io::{self, IsTerminal, Write};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -137,9 +139,9 @@ fn main() {
                 io::stdout().flush().ok();
             }
             if json {
-                dump_json(&reg, span, plan.as_deref());
+                dump_json(&reg, span, plan.as_deref(), &cfg.budgets());
             } else {
-                dump_report(&reg, span, plan.as_deref());
+                dump_report(&reg, span, plan.as_deref(), &cfg.budgets());
             }
             // Explicit flush: stdout is block-buffered when redirected to
             // a file, and the process may be SIGTERM/SIGINT-killed during
@@ -152,11 +154,11 @@ fn main() {
     let reg = Registry::scan(&home, &cfg);
 
     if dump && json {
-        dump_json(&reg, span, plan.as_deref());
+        dump_json(&reg, span, plan.as_deref(), &cfg.budgets());
         return;
     }
     if dump {
-        dump_report(&reg, span, plan.as_deref());
+        dump_report(&reg, span, plan.as_deref(), &cfg.budgets());
         return;
     }
 
@@ -258,26 +260,50 @@ fn main() {
     ratatui::restore();
 }
 
-fn dump_json(reg: &Registry, span: Span, plan: Option<&str>) {
+fn dump_json(reg: &Registry, span: Span, plan: Option<&str>, budgets: &BTreeMap<String, f64>) {
     let now = now_epoch();
     let dash = Dashboard::build(reg.events.clone(), span, now);
     let window = rate_window::RateWindow::build(&reg.events, now, plan);
-    let snap = snapshot::Snapshot::build(reg, &dash, window, now);
+    let money = money::MoneyView::build(&reg.events, now, budgets);
+    let snap = snapshot::Snapshot::build(reg, &dash, window, &money, now);
     println!(
         "{}",
         serde_json::to_string_pretty(&snap).expect("snapshot serializes")
     );
 }
 
-fn dump_report(reg: &Registry, span: Span, plan: Option<&str>) {
-    let dash = Dashboard::build(reg.events.clone(), span, now_epoch());
-    let window = rate_window::RateWindow::build(&reg.events, now_epoch(), plan);
+fn dump_report(reg: &Registry, span: Span, plan: Option<&str>, budgets: &BTreeMap<String, f64>) {
+    let now = now_epoch();
+    let dash = Dashboard::build(reg.events.clone(), span, now);
+    let window = rate_window::RateWindow::build(&reg.events, now, plan);
+    let money = money::MoneyView::build(&reg.events, now, budgets);
     println!("limtop — AI usage report (span: {})", dash.span);
     println!();
     if let Some(w) = &window {
         println!("{}", rate_window::fmt_window(&w));
         println!();
     }
+    println!("money (month to date):");
+    println!(
+        "  spend {:.2}  daily-avg {:.2}/day  projected by month-end {:.2}  ({}d left)",
+        money.month_spend, money.daily_avg, money.projected_month, money.days_remaining
+    );
+    for b in &money.budgets {
+        println!(
+            "  {} {:<28} spent {:>8.2} / {:>8.2}  projected {:>8.2}{}",
+            if b.over { "OVER" } else { "    " },
+            b.project,
+            b.spent,
+            b.budget,
+            b.projected,
+            if b.over {
+                format!("  (over by {:.2})", b.projected - b.budget)
+            } else {
+                String::new()
+            }
+        );
+    }
+    println!();
     println!("providers detected:");
     for s in &reg.statuses {
         println!(

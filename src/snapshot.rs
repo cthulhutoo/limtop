@@ -1,5 +1,6 @@
 use crate::aggregator::Dashboard;
 use crate::model;
+use crate::money::MoneyView;
 use crate::providers::Registry;
 use crate::rate_window::RateWindow;
 
@@ -17,10 +18,18 @@ pub struct Snapshot {
     pub by_provider: Vec<(String, model::UsageTotals)>,
     pub by_model: Vec<(String, model::UsageTotals)>,
     pub by_project: Vec<(String, model::UsageTotals)>,
+    /// Month-to-date money picture; always present (built even with no events).
+    pub money: MoneyView,
 }
 
 impl Snapshot {
-    pub fn build(reg: &Registry, dash: &Dashboard, window: Option<RateWindow>, now: i64) -> Self {
+    pub fn build(
+        reg: &Registry,
+        dash: &Dashboard,
+        window: Option<RateWindow>,
+        money: &MoneyView,
+        now: i64,
+    ) -> Self {
         Snapshot {
             version: env!("CARGO_PKG_VERSION"),
             span: dash.span_label(),
@@ -31,6 +40,7 @@ impl Snapshot {
             by_provider: dash.by_provider.clone(),
             by_model: dash.by_model.clone(),
             by_project: dash.by_project.clone(),
+            money: money.clone(),
         }
     }
 }
@@ -47,7 +57,8 @@ mod tests {
             events: vec![],
         };
         let dash = Dashboard::build(vec![], Span::Day, 1_800_000_000);
-        let snap = Snapshot::build(&reg, &dash, None, 1_800_000_000);
+        let money = crate::money::MoneyView::build(&[], 1_800_000_000, &Default::default());
+        let snap = Snapshot::build(&reg, &dash, None, &money, 1_800_000_000);
 
         let v = serde_json::to_value(&snap).unwrap();
         assert!(v.get("version").is_some());
@@ -56,6 +67,11 @@ mod tests {
         // no rate window → JSON null, key still present for consumers
         assert!(v.get("window").map(|w| w.is_null()).unwrap_or(false));
         assert_eq!(v.get("span").unwrap(), "24h");
+        // money always present, even with zero events
+        let m = v.get("money").expect("money key present");
+        assert_eq!(m.get("monthSpend").unwrap(), &serde_json::json!(0.0));
+        assert_eq!(m.get("daysRemaining").unwrap(), &serde_json::json!(17));
+        assert!(m.get("budgets").unwrap().is_array());
     }
 
     #[test]
@@ -81,6 +97,8 @@ mod tests {
             cost: Some(0.01),
         };
         let dash = Dashboard::build(vec![ev], Span::Day, 1_800_000_000);
+        let money =
+            crate::money::MoneyView::build(&dash.events, 1_800_000_000, &Default::default());
         let window = RateWindow {
             window_start: 1_799_982_000,
             window_secs: 18_000,
@@ -90,7 +108,7 @@ mod tests {
             burn_rate: 30_000.0,
             resets_at: 1_800_000_500,
         };
-        let snap = Snapshot::build(&reg, &dash, Some(window), 1_800_000_000);
+        let snap = Snapshot::build(&reg, &dash, Some(window), &money, 1_800_000_000);
 
         let v = serde_json::to_value(&snap).unwrap();
 

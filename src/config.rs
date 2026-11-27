@@ -13,6 +13,8 @@ use std::path::Path;
 /// [pricing."claude-sonnet-4-5-20250929"]      # USD per Mtok; unset = builtin
 /// input = 3.0
 /// output = 15.0
+/// [budgets]                                   # per-project monthly USD caps
+/// "~/claude/lantrn" = 50.0
 /// ```
 #[derive(Debug, Default, serde::Deserialize)]
 pub struct Config {
@@ -20,6 +22,7 @@ pub struct Config {
     pub ollama_url: Option<String>,
     pub extra_claude_dirs: Option<Vec<String>>,
     pub pricing: Option<HashMap<String, PricingOverride>>,
+    pub budgets: Option<std::collections::BTreeMap<String, f64>>,
 }
 
 /// Per-model price override, USD per million tokens.
@@ -62,6 +65,12 @@ impl Config {
             .iter()
             .map(|s| expand_tilde(s))
             .collect()
+    }
+
+    /// Per-project monthly budget map (project → USD cap). Empty when
+    /// unconfigured — callers never need to distinguish None from `{}`.
+    pub fn budgets(&self) -> std::collections::BTreeMap<String, f64> {
+        self.budgets.clone().unwrap_or_default()
     }
 }
 
@@ -221,5 +230,19 @@ input = 2.0
             "~/alt expands under $HOME"
         );
         assert_eq!(roots[1], "/abs/path", "absolute paths untouched");
+    }
+
+    #[test]
+    fn budgets_parse_and_accessor_defaults_empty() {
+        let c = parse("[budgets]\n\"~/claude/lantrn\" = 50.0\n");
+        let b = c.budgets();
+        assert_eq!(b.len(), 1, "one budget entry");
+        assert_eq!(b.get("~/claude/lantrn"), Some(&50.0));
+
+        assert!(
+            Config::default().budgets().is_empty(),
+            "no [budgets] section → empty map, not None"
+        );
+        assert!(parse("").budgets().is_empty());
     }
 }
