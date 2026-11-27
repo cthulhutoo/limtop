@@ -27,8 +27,12 @@ history and money layer other tools skip.
 
 **Cost analytics as the headline — the thing nobody else does**
 
-- [ ] Per-project cost over time + monthly invoice projection
-      ("at this burn, you end the month at $N")
+- [x] Monthly invoice projection ("at this burn, you end the month at $N")
+      from the trailing-7d daily average (30d fallback) + per-project
+      budgets (`[budgets]` in limtop.toml, amber `over budget` tag)
+- [x] Cache analytics — `cache · estimated` panel: per-project hit rate +
+      estimated re-warm dollars (heuristic; labeled "estimated"); canonical
+      by-model rows (naming variants merge, pricing stays keyed on raw names)
 - [ ] `limtop --report weekly` — markdown digest: burn by project/model,
       week-over-week delta, window close calls
 - [ ] Per-model buckets inside the Claude 5h window — *which* model is

@@ -8,7 +8,8 @@
 
 **btop for AI usage.** A single Rust binary that reads the CLI coding agents
 you already use — Claude Code, opencode, Hermes — and shows tokens, cost,
-cache behavior, and burn-rate in one terminal dashboard. No server, no
+cache behavior, burn-rate, and a projected month-end spend with per-project
+budgets in one terminal dashboard. No server, no
 account, no telemetry: everything is read from local files on disk.
 
 > Formerly **aitop** — renamed after a crates.io name collision.
@@ -109,9 +110,15 @@ Zero config is the default; every key is optional. `~/.config/limtop.toml`:
     ollama_url = "http://nas:11434"             # ollama API endpoint
     extra_claude_dirs = ["~/work/claude-alt"]   # each scanned for projects/
 
+    [budgets]                                   # per-project monthly USD caps
+    "~/claude/lantrn" = 50.0
+
     [pricing."glm-4.7"]   # USD per Mtok — patches the builtin pricing table
     input = 3.0
     output = 12.0
+
+Budget keys must exactly match the project path as shown in the by-project
+output — no globbing, no trailing-slash tolerance.
 
 Precedence is env > file > defaults: `LIMTOP_CLAUDE_LIMIT` and
 `LIMTOP_OLLAMA_URL` always win over their toml counterparts.
@@ -123,6 +130,29 @@ cache reads at 0.1× input, cache writes at 1.25× input). When a provider
 reports cost directly, that number is used instead. Local models (Ollama,
 LM Studio) show $0.
 
+## Money & cache analytics
+
+Line 2 of the dashboard header is the money view: `proj $X by <Mon D>` —
+projected month-end spend, computed from the trailing-7d daily average ×
+days remaining (today counts), falling back to trailing-30d when the 7d
+window is empty. Per-project monthly caps go under `[budgets]`; when a
+projection crosses one, the line turns amber with an `over budget:
+<project>` tag.
+
+`limtop --dump` appends a money section (month spend, daily avg, projection,
+days left); `limtop --json` exposes the same as a `money` object:
+
+    limtop --json | jq .money
+
+Next to the provider cards, the `cache · estimated` panel ranks projects by
+cache hit rate and estimated re-warm dollars — a heuristic that prices
+cache writes beyond 3× fresh input at write rates, so treat the dollar
+figure as a rough signal, not an invoice line.
+
+By-model rows (including the `p` drill-down) merge provider naming variants
+canonically — `claude-sonnet-4-5-20250929` and `claude-sonnet-4.5` are one
+row; pricing stays keyed on the raw names.
+
 ## Privacy
 
 limtop never makes a network request on your behalf. All data comes from
@@ -133,8 +163,9 @@ never leaves your disk.
 ## Roadmap
 
 See [ROADMAP.md](ROADMAP.md) — v0.3.x ships machine-readable output +
-config + release binaries; v0.4 makes cost analytics the headline:
-invoice projection, weekly reports, per-model window buckets.
+config + release binaries; v0.4 makes cost analytics the headline: money
+view (projection, budgets, cache analytics) has landed; weekly reports and
+per-model window buckets are next.
 
 ## License
 
