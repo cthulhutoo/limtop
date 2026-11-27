@@ -162,7 +162,6 @@ mod tests {
     #[test]
     fn month_spend_daily_avg_and_projection() {
         // 7 × $1 inside the trailing-7d window [NOW−7d, NOW]…
-        #[allow(unused_mut)] // push below mutates; fmt collapses the let
         let mut events: Vec<UsageEvent> = (0..7).map(|k| ev(NOW - k * DAY, None, 1.0)).collect();
         // …plus $5 on Jan 1: same month, OUTSIDE the 7d window.
         events.push(ev(JAN1 + 3_600, None, 5.0));
@@ -252,7 +251,7 @@ mod tests {
         let mut budgets = BTreeMap::new();
         budgets.insert("p".to_string(), 100.0);
         let events = vec![
-            ev(NOW - 20 * DAY, Some("p"), 14.0), // 30d fallback, outside month? Dec 26 → different month
+            ev(NOW - 20 * DAY, Some("p"), 14.0), // Dec 26: in the 30d window, outside January
         ];
         let mv2 = MoneyView::build(&events, NOW, &budgets);
         let line = &mv2.budgets[0];

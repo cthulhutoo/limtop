@@ -112,6 +112,80 @@ impl Dashboard {
     }
 }
 
+/// Per-project cache analytics over a span's events.
+///
+/// Exact: `hit_rate`, `reads`, `writes` are token-count facts.
+/// Heuristic: `rewarm_dollars` ESTIMATES dollars spent re-creating cached
+/// context that a cache read should have served — per event, when
+/// `cache_write_tokens > 3 × input_tokens`, the excess
+/// (`cache_write − 3×input`) is priced at the event model's input price ×
+/// 1.25 (the cache-write multiplier). Events whose model has no known
+/// price contribute 0. All projects appear (even zero-rewarm) so the TUI
+/// can show hit rates; sorted by `rewarm_dollars` descending.
+/// Project key matches `Dashboard::build`: `project.unwrap_or("—")`.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheStats {
+    /// cache_read / (cache_read + input); 0.0 when the denominator is 0.
+    pub hit_rate: f64,
+    /// Cache-read tokens.
+    pub reads: u64,
+    /// Cache-write (creation) tokens.
+    pub writes: u64,
+    /// Estimated USD from avoidable context re-warming (heuristic).
+    pub rewarm_dollars: f64,
+}
+
+/// Compute per-project cache stats from raw events (see [`CacheStats`]).
+pub fn cache_stats(events: &[UsageEvent]) -> Vec<(String, CacheStats)> {
+    use crate::model::price_per_mtok;
+
+    // Accumulators per project: (reads, writes, input, rewarm_dollars)
+    let mut acc: BTreeMap<String, (u64, u64, u64, f64)> = BTreeMap::new();
+    for e in events {
+        let key = e.project.clone().unwrap_or_else(|| "—".into());
+        let entry = acc.entry(key).or_default();
+        entry.0 += e.cache_read_tokens;
+        entry.1 += e.cache_write_tokens;
+        entry.2 += e.input_tokens;
+        if e.cache_write_tokens > 3 * e.input_tokens {
+            let wasteful = (e.cache_write_tokens - 3 * e.input_tokens) as f64;
+            if let Some((in_price, _)) = price_per_mtok(&e.model) {
+                entry.3 += wasteful / 1_000_000.0 * in_price * 1.25;
+            }
+        }
+    }
+
+    let mut out: Vec<(String, CacheStats)> = acc
+        .into_iter()
+        .map(|(project, (reads, writes, input, rewarm))| {
+            let denom = (reads + input) as f64;
+            let hit_rate = if denom > 0.0 {
+                reads as f64 / denom
+            } else {
+                0.0
+            };
+            (
+                project,
+                CacheStats {
+                    hit_rate,
+                    reads,
+                    writes,
+                    rewarm_dollars: rewarm,
+                },
+            )
+        })
+        .collect();
+    // rewarm desc; ties fall back to project name for stable output
+    out.sort_by(|a, b| {
+        b.1.rewarm_dollars
+            .partial_cmp(&a.1.rewarm_dollars)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    out
+}
+
 /// Canonical model identity for by-model grouping.
 ///
 /// Lowercases, strips ONE vendor prefix (zai-org-/anthropic-/google-/openai-)
@@ -236,6 +310,137 @@ mod tests {
             canonical_model("e2ee-deepseek-v4-flash"),
             "e2ee-deepseek-v4-flash"
         );
+    }
+
+    fn cache_ev(
+        ts: i64,
+        model: &str,
+        project: Option<&str>,
+        input: u64,
+        cache_read: u64,
+        cache_write: u64,
+    ) -> UsageEvent {
+        UsageEvent {
+            provider: "test".into(),
+            model: model.into(),
+            project: project.map(|s| s.to_string()),
+            session: None,
+            ts,
+            input_tokens: input,
+            output_tokens: 0,
+            cache_read_tokens: cache_read,
+            cache_write_tokens: cache_write,
+            cost: None,
+        }
+    }
+
+    // ── cache_stats ───────────────────────────────────────────────
+
+    #[test]
+    fn cache_hit_rate_simple() {
+        // 90 cached reads vs 10 fresh input tokens → 0.9
+        let events = vec![cache_ev(0, "claude-sonnet-4-5", Some("~/a"), 10, 90, 0)];
+        let stats = cache_stats(&events);
+        assert_eq!(stats.len(), 1);
+        assert!((stats[0].1.hit_rate - 0.9).abs() < 1e-6);
+        assert_eq!(stats[0].1.reads, 90);
+        assert_eq!(stats[0].1.writes, 0);
+    }
+
+    #[test]
+    fn cache_rewarm_dollars_sonnet() {
+        // price_per_mtok("claude-sonnet-4-5-20250929") → sonnet → (3.0, 15.0).
+        // cache_write 10M > 3×input 3M → wasteful 7M × 3.0/1M × 1.25 = 26.25
+        let events = vec![cache_ev(
+            0,
+            "claude-sonnet-4-5-20250929",
+            Some("~/a"),
+            1_000_000,
+            0,
+            10_000_000,
+        )];
+        let stats = cache_stats(&events);
+        assert_eq!(stats[0].1.writes, 10_000_000);
+        assert!(
+            (stats[0].1.rewarm_dollars - 26.25).abs() < 1e-6,
+            "got {}",
+            stats[0].1.rewarm_dollars
+        );
+    }
+
+    #[test]
+    fn cache_rewarm_zero_at_or_below_threshold() {
+        // cache_write == 3×input exactly → threshold not exceeded → 0.0
+        let events = vec![cache_ev(
+            0,
+            "claude-sonnet-4-5-20250929",
+            Some("~/a"),
+            1_000_000,
+            0,
+            3_000_000,
+        )];
+        let stats = cache_stats(&events);
+        assert_eq!(stats[0].1.rewarm_dollars, 0.0);
+        assert_eq!(stats[0].1.writes, 3_000_000, "writes still counted");
+    }
+
+    #[test]
+    fn cache_hit_rate_zero_denominator_no_nan() {
+        // no reads, no input → denominator 0 → hit_rate 0.0, never NaN
+        let events = vec![cache_ev(0, "claude-sonnet-4-5", Some("~/a"), 0, 0, 0)];
+        let stats = cache_stats(&events);
+        assert_eq!(stats.len(), 1, "zero-rewarm project still listed");
+        assert_eq!(stats[0].1.hit_rate, 0.0);
+        assert!(!stats[0].1.hit_rate.is_nan());
+        assert_eq!(stats[0].1.rewarm_dollars, 0.0);
+    }
+
+    #[test]
+    fn cache_stats_per_project_sorted_by_rewarm_desc() {
+        // ~/b re-warms 7M (26.25); ~/a re-warms 2M (7.5). Both listed,
+        // sorted rewarm desc despite ~/a coming first alphabetically.
+        let events = vec![
+            cache_ev(
+                0,
+                "claude-sonnet-4-5-20250929",
+                Some("~/a"),
+                1_000_000,
+                0,
+                5_000_000,
+            ),
+            cache_ev(
+                1,
+                "claude-sonnet-4-5-20250929",
+                Some("~/b"),
+                1_000_000,
+                0,
+                10_000_000,
+            ),
+        ];
+        let stats = cache_stats(&events);
+        assert_eq!(stats.len(), 2);
+        assert_eq!(stats[0].0, "~/b");
+        assert!((stats[0].1.rewarm_dollars - 26.25).abs() < 1e-6);
+        assert_eq!(stats[1].0, "~/a");
+        assert!((stats[1].1.rewarm_dollars - 7.5).abs() < 1e-6);
+    }
+
+    #[test]
+    fn cache_unknown_model_counts_tokens_but_no_rewarm() {
+        // price lookup fails → rewarm contribution 0.0, tokens still exact
+        let events = vec![cache_ev(
+            0,
+            "totally-unknown-xyz",
+            Some("~/a"),
+            1_000,
+            50_000,
+            9_999_999,
+        )];
+        let stats = cache_stats(&events);
+        let s = &stats[0].1;
+        assert_eq!(s.reads, 50_000);
+        assert_eq!(s.writes, 9_999_999);
+        assert_eq!(s.rewarm_dollars, 0.0);
     }
 
     #[test]

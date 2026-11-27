@@ -7,7 +7,7 @@ mod rate_window;
 mod snapshot;
 mod tui;
 
-use aggregator::Dashboard;
+use aggregator::{CacheStats, Dashboard};
 use model::Span;
 use providers::Registry;
 use std::collections::BTreeMap;
@@ -303,6 +303,13 @@ fn dump_report(reg: &Registry, span: Span, plan: Option<&str>, budgets: &BTreeMa
             }
         );
     }
+    // ── cache panel (estimated): rewarm dollars are a heuristic ──────
+    let cache = aggregator::cache_stats(&dash.events);
+    println!();
+    println!("cache (estimated):");
+    for (project, s) in cache.iter().take(5) {
+        println!("{}", fmt_cache_line(project, s));
+    }
     println!();
     println!("providers detected:");
     for s in &reg.statuses {
@@ -343,9 +350,64 @@ fn summarize(t: &model::UsageTotals) -> String {
     )
 }
 
+/// One report line of the cache panel: `~/p  hit 87%  reads 4.2M …`.
+/// `hit  —` when the hit rate is undefined (no reads and no input).
+pub fn fmt_cache_line(project: &str, s: &CacheStats) -> String {
+    let hit = if s.hit_rate > 0.0 || s.reads + s.writes > 0 {
+        format!("hit {:>3.0}%", s.hit_rate * 100.0)
+    } else {
+        "hit   —".to_string()
+    };
+    format!(
+        "  {:<28} {}  reads {:>6}  writes {:>6}  rewarm {}",
+        project,
+        hit,
+        model::fmt_tokens(s.reads),
+        model::fmt_tokens(s.writes),
+        model::fmt_cost(s.rewarm_dollars)
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::parse_watch_interval;
+
+    #[test]
+    fn cache_line_formatting() {
+        use super::fmt_cache_line;
+        use crate::aggregator::cache_stats;
+        use crate::model::UsageEvent;
+
+        // hit rate 90%: reads 90 of (90 + 10) input; rewarm priced on sonnet.
+        let ev = UsageEvent {
+            provider: "test".into(),
+            model: "claude-sonnet-4-5-20250929".into(),
+            project: Some("~/claude/lantrn".into()),
+            session: None,
+            ts: 0,
+            input_tokens: 10,
+            output_tokens: 0,
+            cache_read_tokens: 90,
+            cache_write_tokens: 0,
+            cost: None,
+        };
+        let stats = cache_stats(std::slice::from_ref(&ev));
+        let line = fmt_cache_line(&stats[0].0, &stats[0].1);
+        assert!(
+            line.contains("hit  90%") && line.contains("reads     90"),
+            "got: {line}"
+        );
+
+        // no reads and no input → em-dash, never NaN/0% masquerading as data
+        let zero = UsageEvent {
+            input_tokens: 0,
+            cache_read_tokens: 0,
+            ..ev.clone()
+        };
+        let stats0 = cache_stats(std::slice::from_ref(&zero));
+        let line0 = fmt_cache_line(&stats0[0].0, &stats0[0].1);
+        assert!(line0.contains("hit   —"), "got: {line0}");
+    }
 
     fn args(list: &[&str]) -> Vec<String> {
         list.iter().map(|s| s.to_string()).collect()
