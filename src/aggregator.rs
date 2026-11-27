@@ -60,7 +60,7 @@ impl Dashboard {
         for e in &events {
             d.totals.add(e);
             prov.entry(e.provider.clone()).or_default().add(e);
-            model.entry(e.model.clone()).or_default().add(e);
+            model.entry(canonical_model(&e.model)).or_default().add(e);
             let p = e.project.clone().unwrap_or_else(|| "—".into());
             proj.entry(p).or_default().add(e);
         }
@@ -112,6 +112,38 @@ impl Dashboard {
     }
 }
 
+/// Canonical model identity for by-model grouping.
+///
+/// Lowercases, strips ONE vendor prefix (zai-org-/anthropic-/google-/openai-)
+/// and ONE dated suffix (-20250929/-20260301), and dots dash-style version
+/// segments. Unknown model strings pass through unchanged, so raw names like
+/// "e2ee-deepseek-v4-flash" or already-dotted "gpt-5.2-turbo" are safe.
+pub fn canonical_model(raw: &str) -> String {
+    let mut s = raw.to_lowercase();
+    for p in ["zai-org-", "anthropic-", "google-", "openai-"] {
+        if let Some(rest) = s.strip_prefix(p) {
+            s = rest.to_string();
+            break; // first match wins, strip only once
+        }
+    }
+    for suf in ["-20250929", "-20260301"] {
+        if let Some(rest) = s.strip_suffix(suf) {
+            s = rest.to_string();
+            break;
+        }
+    }
+    for (from, to) in [
+        ("-5-2", "-5.2"),
+        ("-5-1", "-5.1"),
+        ("-4-7", "-4.7"),
+        ("-4-5", "-4.5"),
+        ("-4-6", "-4.6"),
+    ] {
+        s = s.replace(from, to);
+    }
+    s
+}
+
 /// epoch → "2026-08" for all-time bucketing.
 fn month_key(ts: i64) -> String {
     // civil-from-days (Hinnant), then format
@@ -125,4 +157,73 @@ fn month_key(ts: i64) -> String {
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = if m <= 2 { y + 1 } else { y };
     format!("{:04}-{:02}", y, m)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn ev(ts: i64, model: &str, input: u64, output: u64) -> UsageEvent {
+        UsageEvent {
+            provider: "test".into(),
+            model: model.into(),
+            project: None,
+            session: None,
+            ts,
+            input_tokens: input,
+            output_tokens: output,
+            cache_read_tokens: 0,
+            cache_write_tokens: 0,
+            cost: None,
+        }
+    }
+
+    #[test]
+    fn canonical_claude_dated() {
+        assert_eq!(
+            canonical_model("claude-sonnet-4-5-20250929"),
+            "claude-sonnet-4.5"
+        );
+    }
+
+    #[test]
+    fn canonical_zai_prefix() {
+        assert_eq!(canonical_model("zai-org-glm-5-2"), "glm-5.2");
+    }
+
+    #[test]
+    fn canonical_unchanged_dotted() {
+        assert_eq!(canonical_model("glm-4.7"), "glm-4.7");
+    }
+
+    #[test]
+    fn canonical_unchanged_turbo_suffix() {
+        assert_eq!(canonical_model("gpt-5.2-turbo"), "gpt-5.2-turbo");
+    }
+
+    #[test]
+    fn canonical_claude_opus() {
+        assert_eq!(canonical_model("claude-opus-4-6"), "claude-opus-4.6");
+    }
+
+    #[test]
+    fn canonical_v4_flash_untouched() {
+        assert_eq!(
+            canonical_model("e2ee-deepseek-v4-flash"),
+            "e2ee-deepseek-v4-flash"
+        );
+    }
+
+    #[test]
+    fn build_groups_by_canonical_model() {
+        let events = vec![
+            ev(1_000_000, "zai-org-glm-5-2", 100, 50),
+            ev(1_000_001, "glm-5.2", 200, 80),
+        ];
+        let d = Dashboard::build(events, Span::All, 2_000_000);
+        assert_eq!(d.by_model.len(), 1, "expected one merged entry");
+        assert_eq!(d.by_model[0].0, "glm-5.2");
+        assert_eq!(d.by_model[0].1.input_tokens, 300);
+        assert_eq!(d.by_model[0].1.output_tokens, 130);
+    }
 }
